@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pemantauan Bencana Indonesia</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="shell">
+      <section class="map-panel">
+        <div id="map" aria-label="Peta kejadian bencana Indonesia"></div>
+        <div class="map-credit">Peta: OpenStreetMap. Data: BMKG, BNPB.</div>
+      </section>
+      <aside class="side-panel">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">MVP pemantauan</p>
+            <h1>Bencana Indonesia</h1>
+          </div>
+          <button id="refreshBtn" type="button" title="Muat ulang data">↻</button>
+        </header>
+
+        <section class="status-strip" aria-live="polite">
+          <div>
+            <span id="incidentCount">0</span>
+            <small>Kejadian</small>
+          </div>
+          <div>
+            <span id="lastUpdated">Memuat...</span>
+            <small>Pembaruan</small>
+          </div>
+        </section>
+
+        <section class="filters" aria-label="Filter kejadian">
+          <label>
+            Jenis
+            <select id="typeFilter">
+              <option value="">Semua jenis</option>
+            </select>
+          </label>
+          <label>
+            Wilayah
+            <select id="provinceFilter">
+              <option value="">Semua wilayah</option>
+            </select>
+          </label>
+          <label>
+            Cari
+            <input id="searchInput" type="search" placeholder="Lokasi, sumber, ringkasan" />
+          </label>
+        </section>
+
+        <section class="source-note">
+          <strong>Catatan reliabilitas:</strong> gempa BMKG bersifat event-driven. Data BNPB adalah kejadian terlapor. Aplikasi ini tidak menyebut semua sumber sebagai real-time bila sumbernya tidak menjamin itu.
+        </section>
+
+        <div id="incidentList" class="incident-list"></div>
+      </aside>
+    </main>
+
+    <dialog id="detailDialog">
+      <article>
+        <button id="closeDialog" class="close" title="Tutup">×</button>
+        <p id="detailSource" class="eyebrow"></p>
+        <h2 id="detailTitle"></h2>
+        <dl id="detailMeta"></dl>
+        <p id="detailSummary"></p>
+        <a id="detailLink" target="_blank" rel="noreferrer">Buka sumber</a>
+      </article>
+    </dialog>
+
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="/app.js"></script>
+  </body>
+</html>
