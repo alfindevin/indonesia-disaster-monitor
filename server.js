@@ -422,7 +422,7 @@ async function loadIncidents() {
       },
     ],
   };
-  await writeCache(payload);
+  // await writeCache(payload);
   return { ...payload, cache: "miss" };
 }
 
