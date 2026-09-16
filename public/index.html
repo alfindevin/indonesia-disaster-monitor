@@ -23,39 +23,32 @@
         </header>
 
         <section class="status-strip" aria-live="polite">
-          <div>
-            <span id="incidentCount">0</span>
-            <small>Kejadian</small>
+          <div><span id="incidentCount">0</span><small>Kejadian</small></div>
+          <div><span id="lastUpdated">Memuat...</span><small>Pembaruan</small></div>
+        </section>
+
+        <section class="alert-box" aria-label="Peringatan bencana">
+          <div class="alert-heading">
+            <div>
+              <strong>🔔 Peringatan</strong>
+              <small id="alertStatus">Nonaktif</small>
+            </div>
+            <button id="alertToggle" type="button">Aktifkan</button>
           </div>
-          <div>
-            <span id="lastUpdated">Memuat...</span>
-            <small>Pembaruan</small>
+          <div class="alert-settings">
+            <label>Wilayah <select id="alertProvince"><option value="">Seluruh Indonesia</option></select></label>
+            <label>Level <select id="alertSeverity"><option value="all">Semua kejadian baru</option><option value="medium">Medium &amp; High</option><option value="high">High saja</option></select></label>
           </div>
+          <p id="alertMessage" class="muted">Akan memberi notifikasi ketika ada kejadian baru yang sesuai filter.</p>
         </section>
 
         <section class="filters" aria-label="Filter kejadian">
-          <label>
-            Jenis
-            <select id="typeFilter">
-              <option value="">Semua jenis</option>
-            </select>
-          </label>
-          <label>
-            Wilayah
-            <select id="provinceFilter">
-              <option value="">Semua wilayah</option>
-            </select>
-          </label>
-          <label>
-            Cari
-            <input id="searchInput" type="search" placeholder="Lokasi, sumber, ringkasan" />
-          </label>
+          <label>Jenis<select id="typeFilter"><option value="">Semua jenis</option></select></label>
+          <label>Wilayah<select id="provinceFilter"><option value="">Semua wilayah</option></select></label>
+          <label>Cari<input id="searchInput" type="search" placeholder="Lokasi, sumber, ringkasan" /></label>
         </section>
 
-        <section class="source-note">
-          <strong>Catatan reliabilitas:</strong> gempa BMKG bersifat event-driven. Data BNPB adalah kejadian terlapor. Aplikasi ini tidak menyebut semua sumber sebagai real-time bila sumbernya tidak menjamin itu.
-        </section>
-
+        <section class="source-note"><strong>Catatan reliabilitas:</strong> gempa BMKG bersifat event-driven. Data BNPB adalah kejadian terlapor. Aplikasi ini tidak menyebut semua sumber sebagai real-time bila sumbernya tidak menjamin itu.</section>
         <div id="incidentList" class="incident-list"></div>
       </aside>
     </main>
