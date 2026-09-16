@@ -15,30 +15,26 @@
       </section>
       <aside class="side-panel">
         <header class="topbar">
-          <div>
-            <p class="eyebrow">MVP pemantauan</p>
-            <h1>Bencana Indonesia</h1>
-          </div>
+          <div><p class="eyebrow">MVP pemantauan</p><h1>Bencana Indonesia</h1></div>
           <button id="refreshBtn" type="button" title="Muat ulang data">↻</button>
         </header>
-
         <section class="status-strip" aria-live="polite">
           <div><span id="incidentCount">0</span><small>Kejadian</small></div>
           <div><span id="lastUpdated">Memuat...</span><small>Pembaruan</small></div>
         </section>
 
+        <section class="my-area" aria-label="Area saya">
+          <div class="section-heading"><div><strong>📍 Area Saya</strong><small id="areaStatus">Belum diatur</small></div><button id="areaToggle" type="button">Gunakan lokasi</button></div>
+          <div class="area-settings">
+            <label>Radius<select id="areaRadius"><option value="25">25 km</option><option value="50" selected>50 km</option><option value="100">100 km</option><option value="250">250 km</option></select></label>
+            <button id="areaClear" type="button" class="secondary">Reset</button>
+          </div>
+          <p id="areaMessage" class="muted">Izinkan lokasi perangkat untuk melihat kejadian di sekitar Anda. Koordinat hanya digunakan di perangkat ini.</p>
+        </section>
+
         <section class="alert-box" aria-label="Peringatan bencana">
-          <div class="alert-heading">
-            <div>
-              <strong>🔔 Peringatan</strong>
-              <small id="alertStatus">Nonaktif</small>
-            </div>
-            <button id="alertToggle" type="button">Aktifkan</button>
-          </div>
-          <div class="alert-settings">
-            <label>Wilayah <select id="alertProvince"><option value="">Seluruh Indonesia</option></select></label>
-            <label>Level <select id="alertSeverity"><option value="all">Semua kejadian baru</option><option value="medium">Medium &amp; High</option><option value="high">High saja</option></select></label>
-          </div>
+          <div class="alert-heading"><div><strong>🔔 Peringatan</strong><small id="alertStatus">Nonaktif</small></div><button id="alertToggle" type="button">Aktifkan</button></div>
+          <div class="alert-settings"><label>Wilayah<select id="alertProvince"><option value="">Seluruh Indonesia</option></select></label><label>Level<select id="alertSeverity"><option value="all">Semua kejadian baru</option><option value="medium">Medium &amp; High</option><option value="high">High saja</option></select></label></div>
           <p id="alertMessage" class="muted">Akan memberi notifikasi ketika ada kejadian baru yang sesuai filter.</p>
         </section>
 
@@ -47,23 +43,11 @@
           <label>Wilayah<select id="provinceFilter"><option value="">Semua wilayah</option></select></label>
           <label>Cari<input id="searchInput" type="search" placeholder="Lokasi, sumber, ringkasan" /></label>
         </section>
-
         <section class="source-note"><strong>Catatan reliabilitas:</strong> gempa BMKG bersifat event-driven. Data BNPB adalah kejadian terlapor. Aplikasi ini tidak menyebut semua sumber sebagai real-time bila sumbernya tidak menjamin itu.</section>
         <div id="incidentList" class="incident-list"></div>
       </aside>
     </main>
-
-    <dialog id="detailDialog">
-      <article>
-        <button id="closeDialog" class="close" title="Tutup">×</button>
-        <p id="detailSource" class="eyebrow"></p>
-        <h2 id="detailTitle"></h2>
-        <dl id="detailMeta"></dl>
-        <p id="detailSummary"></p>
-        <a id="detailLink" target="_blank" rel="noreferrer">Buka sumber</a>
-      </article>
-    </dialog>
-
+    <dialog id="detailDialog"><article><button id="closeDialog" class="close" title="Tutup">×</button><p id="detailSource" class="eyebrow"></p><h2 id="detailTitle"></h2><dl id="detailMeta"></dl><p id="detailSummary"></p><a id="detailLink" target="_blank" rel="noreferrer">Buka sumber</a></article></dialog>
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <script src="/app.js"></script>
   </body>
