@@ -1,194 +1,41 @@
-const state = {
-  incidents: [],
-  filtered: [],
-  markers: new Map(),
-  selectedId: null,
-};
+const state = { incidents: [], filtered: [], markers: new Map(), selectedId: null, previousIds: new Set(), alertInitialized: false };
 
 const map = L.map("map", { zoomControl: false }).setView([-2.5, 118], 5);
 L.control.zoom({ position: "bottomright" }).addTo(map);
-L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", {
-  maxZoom: 18,
-  attribution: "&copy; OpenStreetMap contributors",
-}).addTo(map);
+L.tileLayer("https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png", { maxZoom: 18, attribution: "&copy; OpenStreetMap contributors" }).addTo(map);
 
 const els = {
-  list: document.querySelector("#incidentList"),
-  count: document.querySelector("#incidentCount"),
-  updated: document.querySelector("#lastUpdated"),
-  type: document.querySelector("#typeFilter"),
-  province: document.querySelector("#provinceFilter"),
-  search: document.querySelector("#searchInput"),
-  refresh: document.querySelector("#refreshBtn"),
-  dialog: document.querySelector("#detailDialog"),
-  closeDialog: document.querySelector("#closeDialog"),
-  detailSource: document.querySelector("#detailSource"),
-  detailTitle: document.querySelector("#detailTitle"),
-  detailMeta: document.querySelector("#detailMeta"),
-  detailSummary: document.querySelector("#detailSummary"),
-  detailLink: document.querySelector("#detailLink"),
+  list: document.querySelector("#incidentList"), count: document.querySelector("#incidentCount"), updated: document.querySelector("#lastUpdated"),
+  type: document.querySelector("#typeFilter"), province: document.querySelector("#provinceFilter"), search: document.querySelector("#searchInput"), refresh: document.querySelector("#refreshBtn"),
+  dialog: document.querySelector("#detailDialog"), closeDialog: document.querySelector("#closeDialog"), detailSource: document.querySelector("#detailSource"), detailTitle: document.querySelector("#detailTitle"), detailMeta: document.querySelector("#detailMeta"), detailSummary: document.querySelector("#detailSummary"), detailLink: document.querySelector("#detailLink"),
+  alertToggle: document.querySelector("#alertToggle"), alertStatus: document.querySelector("#alertStatus"), alertProvince: document.querySelector("#alertProvince"), alertSeverity: document.querySelector("#alertSeverity"), alertMessage: document.querySelector("#alertMessage"),
 };
 
-function formatTime(value) {
-  if (!value) return "Tidak tersedia";
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return value;
-  return new Intl.DateTimeFormat("id-ID", {
-    dateStyle: "medium",
-    timeStyle: "short",
-    timeZone: "Asia/Jakarta",
-  }).format(date);
-}
+function formatTime(value) { if (!value) return "Tidak tersedia"; const date = new Date(value); if (Number.isNaN(date.getTime())) return value; return new Intl.DateTimeFormat("id-ID", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Jakarta" }).format(date); }
+function markerColor(item) { if (item.source === "BMKG") return item.severity === "high" ? "#b42318" : "#c45317"; return ({ "Banjir":"#0b7a75", "Kebakaran Hutan Dan Lahan":"#b54708", "Tanah Longsor":"#7a5c38", "Cuaca Ekstrim":"#175cd3", "Gempa Bumi":"#c45317" })[item.type] || "#475467"; }
+function markerIcon(item) { return L.divIcon({ className:"incident-marker", html:`<span style="background:${markerColor(item)}"></span>`, iconSize:[18,18], iconAnchor:[9,9] }); }
+function setOptions(select, values, firstLabel) { const current=select.value; select.innerHTML=`<option value="">${firstLabel}</option>`+values.map(v=>`<option>${escapeHtml(v)}</option>`).join(""); select.value=values.includes(current)?current:""; }
+function renderFilters() { const types=[...new Set(state.incidents.map(i=>i.type).filter(Boolean))].sort(); const provinces=[...new Set(state.incidents.map(i=>i.province||i.region).filter(Boolean))].sort(); setOptions(els.type,types,"Semua jenis"); setOptions(els.province,provinces,"Semua wilayah"); setOptions(els.alertProvince,provinces,"Seluruh Indonesia"); }
+function applyFilters() { const q=els.search.value.trim().toLowerCase(); state.filtered=state.incidents.filter(item=>{const province=item.province||item.region; const haystack=`${item.title} ${item.region} ${item.source} ${item.summary}`.toLowerCase(); return (!els.type.value||item.type===els.type.value)&&(!els.province.value||province===els.province.value)&&(!q||haystack.includes(q));}); render(); }
+function renderMap() { for(const marker of state.markers.values()) marker.remove(); state.markers.clear(); const bounds=[]; for(const item of state.filtered){ if(!Number.isFinite(Number(item.lat))||!Number.isFinite(Number(item.lon))) continue; const marker=L.marker([item.lat,item.lon],{icon:markerIcon(item),title:item.title}).addTo(map).bindPopup(`<strong>${escapeHtml(item.title)}</strong><br>${escapeHtml(item.source)}<br>${formatTime(item.occurredAt)}`).on("click",()=>selectIncident(item.id,true)); state.markers.set(item.id,marker); bounds.push([item.lat,item.lon]); } if(bounds.length) map.fitBounds(bounds,{padding:[28,28],maxZoom:7}); }
+function renderList() { els.count.textContent=state.filtered.length.toString(); if(!state.filtered.length){els.list.innerHTML=`<p class="muted">Tidak ada kejadian yang cocok dengan filter.</p>`;return;} els.list.innerHTML=state.filtered.map(item=>`<button class="incident-card ${item.id===state.selectedId?"active":""}" data-id="${escapeHtml(item.id)}" type="button"><div class="card-meta"><span class="pill">${escapeHtml(item.source)}</span><span class="pill">${escapeHtml(item.type)}</span>${item.approximateLocation?`<span class="pill">perkiraan</span>`:""}<span class="pill ${escapeHtml(item.severity)}">${escapeHtml(item.severity)}</span></div><h3>${escapeHtml(item.title)}</h3><small>${escapeHtml(item.region)} · ${formatTime(item.occurredAt)}</small></button>`).join(""); }
+function render(){renderMap();renderList();}
+function escapeHtml(value){return String(value??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;"}[c]));}
+function selectIncident(id,openDetail=false){const item=state.incidents.find(c=>c.id===id);if(!item)return;state.selectedId=id;const marker=state.markers.get(id);if(marker){map.setView([item.lat,item.lon],Math.max(map.getZoom(),7));marker.openPopup();}renderList();if(openDetail)showDetail(item);}
+function showDetail(item){els.detailSource.textContent=`${item.source} · ${item.confidence}`;els.detailTitle.textContent=item.title;els.detailMeta.innerHTML=`<dt>Terjadi</dt><dd>${formatTime(item.occurredAt)}</dd><dt>Diperbarui</dt><dd>${formatTime(item.updatedAt)}</dd><dt>Wilayah</dt><dd>${escapeHtml(item.region)}</dd><dt>Koordinat</dt><dd>${Number(item.lat).toFixed(3)}, ${Number(item.lon).toFixed(3)}</dd><dt>Lokasi</dt><dd>${item.approximateLocation?`Perkiraan (${escapeHtml(item.locationPrecision||"administratif")})`:"Titik dari sumber"}</dd><dt>Kesegaran</dt><dd>${escapeHtml(item.freshness)}</dd>`;els.detailSummary.textContent=item.summary||"Tidak ada ringkasan tambahan dari sumber.";els.detailLink.href=item.sourceUrl;els.dialog.showModal();}
 
-function markerColor(item) {
-  if (item.source === "BMKG") return item.severity === "high" ? "#b42318" : "#c45317";
-  const colors = {
-    "Banjir": "#0b7a75",
-    "Kebakaran Hutan Dan Lahan": "#b54708",
-    "Tanah Longsor": "#7a5c38",
-    "Cuaca Ekstrim": "#175cd3",
-    "Gempa Bumi": "#c45317",
-  };
-  return colors[item.type] || "#475467";
-}
+function getAlertConfig(){return JSON.parse(localStorage.getItem("idm-alert-config")||"null");}
+function setAlertConfig(config){localStorage.setItem("idm-alert-config",JSON.stringify(config));}
+function supportsNotifications(){return "Notification" in window;}
+function updateAlertUI(){const config=getAlertConfig();const active=Boolean(config?.enabled);els.alertStatus.textContent=active?"Aktif":"Nonaktif";els.alertToggle.textContent=active?"Matikan":"Aktifkan";els.alertToggle.classList.toggle("alert-active",active);if(config){els.alertProvince.value=config.province||"";els.alertSeverity.value=config.severity||"all";} }
+async function toggleAlerts(){const current=getAlertConfig()||{enabled:false,province:"",severity:"all"};if(current.enabled){current.enabled=false;setAlertConfig(current);updateAlertUI();els.alertMessage.textContent="Peringatan dinonaktifkan.";return;}if(!supportsNotifications()){els.alertMessage.textContent="Browser ini tidak mendukung notifikasi.";return;}const permission=await Notification.requestPermission();if(permission!=="granted"){els.alertMessage.textContent="Izin notifikasi belum diberikan. Aktifkan notifikasi untuk situs ini di pengaturan browser.";return;}current.enabled=true;current.province=els.alertProvince.value;current.severity=els.alertSeverity.value;setAlertConfig(current);updateAlertUI();els.alertMessage.textContent="Peringatan aktif. Selama halaman ini terbuka, kejadian baru akan dicek saat data diperbarui.";}
+function alertMatches(item,config){if(!config?.enabled)return false;const province=item.province||item.region||"";if(config.province&&province!==config.province)return false;if(config.severity==="high"&&item.severity!=="high")return false;if(config.severity==="medium"&&!(["medium","high"].includes(item.severity)))return false;return true;}
+function notifyNewIncidents(incidents){const config=getAlertConfig();if(!config?.enabled)return;const fresh=incidents.filter(i=>!state.previousIds.has(i.id)&&alertMatches(i,config));if(!state.alertInitialized){state.alertInitialized=true;return;}for(const item of fresh.slice(0,3)){try{new Notification(`Bencana baru: ${item.type}`,{body:`${item.title} · ${formatTime(item.occurredAt)}`,tag:`idm-${item.id}`});}catch{}}if(fresh.length)els.alertMessage.textContent=`${fresh.length} kejadian baru sesuai pengaturan peringatan.`;}
+function saveAlertFilters(){const config=getAlertConfig();if(!config?.enabled)return;config.province=els.alertProvince.value;config.severity=els.alertSeverity.value;setAlertConfig(config);els.alertMessage.textContent="Pengaturan peringatan diperbarui.";}
 
-function markerIcon(item) {
-  return L.divIcon({
-    className: "incident-marker",
-    html: `<span style="background:${markerColor(item)}"></span>`,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
-  });
-}
+async function loadData(){els.updated.textContent="Memuat...";try{const response=await fetch(`/api/incidents?ts=${Date.now()}`,{cache:"no-store"});if(!response.ok)throw new Error(`${response.status} ${response.statusText}`);const payload=await response.json();const incidents=payload.incidents||[];notifyNewIncidents(incidents);state.incidents=incidents;state.previousIds=new Set(incidents.map(i=>i.id));els.updated.textContent=formatTime(payload.generatedAt);renderFilters();applyFilters();}catch(error){els.updated.textContent="Gagal memuat";els.list.innerHTML=`<p class="muted">Data belum bisa dimuat: ${escapeHtml(error.message)}</p>`;}}
 
-function setOptions(select, values, firstLabel) {
-  const current = select.value;
-  select.innerHTML = `<option value="">${firstLabel}</option>` + values.map((value) => `<option>${value}</option>`).join("");
-  select.value = values.includes(current) ? current : "";
-}
-
-function renderFilters() {
-  const types = [...new Set(state.incidents.map((item) => item.type).filter(Boolean))].sort();
-  const provinces = [...new Set(state.incidents.map((item) => item.province || item.region).filter(Boolean))].sort();
-  setOptions(els.type, types, "Semua jenis");
-  setOptions(els.province, provinces, "Semua wilayah");
-}
-
-function applyFilters() {
-  const q = els.search.value.trim().toLowerCase();
-  state.filtered = state.incidents.filter((item) => {
-    const province = item.province || item.region;
-    const haystack = `${item.title} ${item.region} ${item.source} ${item.summary}`.toLowerCase();
-    return (!els.type.value || item.type === els.type.value)
-      && (!els.province.value || province === els.province.value)
-      && (!q || haystack.includes(q));
-  });
-  render();
-}
-
-function renderMap() {
-  for (const marker of state.markers.values()) marker.remove();
-  state.markers.clear();
-
-  const bounds = [];
-  for (const item of state.filtered) {
-    const marker = L.marker([item.lat, item.lon], { icon: markerIcon(item), title: item.title })
-      .addTo(map)
-      .bindPopup(`<strong>${item.title}</strong><br>${item.source}<br>${formatTime(item.occurredAt)}`)
-      .on("click", () => selectIncident(item.id, true));
-    state.markers.set(item.id, marker);
-    bounds.push([item.lat, item.lon]);
-  }
-  if (bounds.length) map.fitBounds(bounds, { padding: [28, 28], maxZoom: 7 });
-}
-
-function renderList() {
-  els.count.textContent = state.filtered.length.toString();
-  if (!state.filtered.length) {
-    els.list.innerHTML = `<p class="muted">Tidak ada kejadian yang cocok dengan filter.</p>`;
-    return;
-  }
-  els.list.innerHTML = state.filtered.map((item) => `
-    <button class="incident-card ${item.id === state.selectedId ? "active" : ""}" data-id="${item.id}" type="button">
-      <div class="card-meta">
-        <span class="pill">${item.source}</span>
-        <span class="pill">${item.type}</span>
-        ${item.approximateLocation ? `<span class="pill">perkiraan</span>` : ""}
-        <span class="pill ${item.severity}">${item.severity}</span>
-      </div>
-      <h3>${escapeHtml(item.title)}</h3>
-      <small>${escapeHtml(item.region)} · ${formatTime(item.occurredAt)}</small>
-    </button>
-  `).join("");
-}
-
-function render() {
-  renderMap();
-  renderList();
-}
-
-function escapeHtml(value) {
-  return String(value || "").replace(/[&<>"']/g, (char) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    '"': "&quot;",
-    "'": "&#039;",
-  }[char]));
-}
-
-function selectIncident(id, openDetail = false) {
-  const item = state.incidents.find((candidate) => candidate.id === id);
-  if (!item) return;
-  state.selectedId = id;
-  const marker = state.markers.get(id);
-  if (marker) {
-    map.setView([item.lat, item.lon], Math.max(map.getZoom(), 7));
-    marker.openPopup();
-  }
-  renderList();
-  if (openDetail) showDetail(item);
-}
-
-function showDetail(item) {
-  els.detailSource.textContent = `${item.source} · ${item.confidence}`;
-  els.detailTitle.textContent = item.title;
-  els.detailMeta.innerHTML = `
-    <dt>Terjadi</dt><dd>${formatTime(item.occurredAt)}</dd>
-    <dt>Diperbarui</dt><dd>${formatTime(item.updatedAt)}</dd>
-    <dt>Wilayah</dt><dd>${escapeHtml(item.region)}</dd>
-    <dt>Koordinat</dt><dd>${item.lat.toFixed(3)}, ${item.lon.toFixed(3)}</dd>
-    <dt>Lokasi</dt><dd>${item.approximateLocation ? "Perkiraan wilayah administratif" : "Titik dari sumber"}</dd>
-    <dt>Kesegaran</dt><dd>${escapeHtml(item.freshness)}</dd>
-  `;
-  els.detailSummary.textContent = item.summary || "Tidak ada ringkasan tambahan dari sumber.";
-  els.detailLink.href = item.sourceUrl;
-  els.dialog.showModal();
-}
-
-async function loadData() {
-  els.updated.textContent = "Memuat...";
-  const response = await fetch("/api/incidents");
-  const payload = await response.json();
-  state.incidents = payload.incidents || [];
-  els.updated.textContent = formatTime(payload.generatedAt);
-  renderFilters();
-  applyFilters();
-}
-
-els.list.addEventListener("click", (event) => {
-  const card = event.target.closest(".incident-card");
-  if (card) selectIncident(card.dataset.id, true);
-});
-
-for (const input of [els.type, els.province, els.search]) {
-  input.addEventListener("input", applyFilters);
-}
-
-els.refresh.addEventListener("click", loadData);
-els.closeDialog.addEventListener("click", () => els.dialog.close());
-
-loadData().catch((error) => {
-  els.updated.textContent = "Gagal memuat";
-  els.list.innerHTML = `<p class="muted">Data belum bisa dimuat: ${escapeHtml(error.message)}</p>`;
-});
+els.list.addEventListener("click",event=>{const card=event.target.closest(".incident-card");if(card)selectIncident(card.dataset.id,true);});
+for(const input of [els.type,els.province,els.search])input.addEventListener("input",applyFilters);
+els.refresh.addEventListener("click",loadData);els.closeDialog.addEventListener("click",()=>els.dialog.close());els.alertToggle.addEventListener("click",toggleAlerts);els.alertProvince.addEventListener("change",saveAlertFilters);els.alertSeverity.addEventListener("change",saveAlertFilters);
+updateAlertUI();loadData().catch(()=>{});setInterval(loadData,5*60*1000);
