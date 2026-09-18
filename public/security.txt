@@ -1,0 +1,3 @@
+Contact: mailto:security@indonesia-disaster-monitor.vercel.app
+Preferred-Languages: id, en
+Canonical: https://indonesia-disaster-monitor.vercel.app/security.txt
