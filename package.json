@@ -2,6 +2,7 @@
   "scripts": {
     "start": "node server.js"
   },
-  "dependencies": {},
-  "devDependencies": {}
+  "dependencies": {
+    "@vercel/analytics": "^2.0.1"
+  }
 }
