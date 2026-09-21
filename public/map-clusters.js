@@ -56,4 +56,33 @@
     marker.openPopup = function(...popupArgs) { if (window.__idmClusterManager?.markers.has(this) && !this.__idmVisible) { window.__idmClusterManager.reveal(this); return this; } return originalOpenPopup.apply(this, popupArgs); };
     return marker;
   };
+  const KEY='idm-time-window';
+  const WINDOWS={live:0,h1:1,h6:6,h24:24,d7:168};
+  const selected=localStorage.getItem(KEY)||'live';
+  const originalFetch=window.fetch;
+  window.fetch=async function(input,init){
+    const url=typeof input==='string'?input:input?.url||'';
+    const response=await originalFetch.apply(this,arguments);
+    if(!url.includes('/api/incidents')) return response;
+    const hours=WINDOWS[localStorage.getItem(KEY)||'live']||0;
+    if(!hours) return response;
+    try{
+      const data=await response.clone().json(), now=Date.now(), cut=now-hours*3600000;
+      if(Array.isArray(data.incidents)) data.incidents=data.incidents.filter(i=>{const t=new Date(i.occurredAt||i.updatedAt||0).getTime();return Number.isFinite(t)&&t>=cut&&t<=now+3600000});
+      return new Response(JSON.stringify(data),{status:response.status,statusText:response.statusText,headers:new Headers(response.headers)});
+    }catch{return response}
+  };
+  function installTimeFilter(){
+    if(document.querySelector('.idm-time-filter')) return;
+    const filters=document.querySelector('.filters'); if(!filters) return;
+    const box=document.createElement('section'); box.className='idm-time-filter';
+    box.innerHTML='<div class="idm-time-title"><strong>Periode</strong><small>Filter kejadian berdasarkan waktu</small></div><div class="idm-time-buttons"><button data-window="live">LIVE</button><button data-window="h1">1 JAM</button><button data-window="h6">6 JAM</button><button data-window="h24">24 JAM</button><button data-window="d7">7 HARI</button></div><small class="idm-time-status"></small>';
+    filters.parentNode.insertBefore(box,filters);
+    const status=box.querySelector('.idm-time-status');
+    function paint(){const current=localStorage.getItem(KEY)||'live';box.querySelectorAll('button').forEach(b=>b.classList.toggle('active',b.dataset.window===current));const h=WINDOWS[current];status.textContent=h?`Menampilkan kejadian ${h<24?h+' jam':'7 hari'} terakhir`:'Menampilkan semua kejadian yang tersedia'}
+    paint();
+    box.addEventListener('click',e=>{const b=e.target.closest('button[data-window]');if(!b)return;localStorage.setItem(KEY,b.dataset.window);location.reload()});
+    const style=document.createElement('style'); style.textContent='.idm-time-filter{margin:0 0 12px;padding:10px 12px;border:1px solid #eaecf0;border-radius:12px;background:#fff}.idm-time-title{display:flex;justify-content:space-between;align-items:center;gap:8px;margin-bottom:8px}.idm-time-title strong{font-size:12px;color:#101828}.idm-time-title small,.idm-time-status{font-size:10px;color:#667085}.idm-time-buttons{display:grid;grid-template-columns:repeat(5,1fr);gap:5px}.idm-time-buttons button{border:1px solid #d0d5dd;background:#fff;border-radius:7px;padding:7px 4px;font-size:10px;font-weight:800;color:#475467;cursor:pointer}.idm-time-buttons button.active{background:#175cd3;border-color:#175cd3;color:#fff}.idm-time-status{display:block;margin-top:7px}@media(max-width:700px){.idm-time-buttons{grid-template-columns:repeat(3,1fr)}}';document.head.appendChild(style);
+  }
+  if(document.readyState==='loading') document.addEventListener('DOMContentLoaded',installTimeFilter); else installTimeFilter();
 })();
