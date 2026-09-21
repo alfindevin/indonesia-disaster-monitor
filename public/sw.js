@@ -1,4 +1,4 @@
-const CACHE='idm-v14';
+const CACHE='idm-v15';
 const APP=['/','/styles.css','/dashboard.css','/phase2.css','/region.css','/history.css','/phase1.css','/phase3.css','/phase4.css','/map-markers.css','/map-clusters.css','/app.js','/map-clusters.js','/dashboard.js','/phase2.js','/region.js','/phase1.js','/phase1-bridge.js','/phase3.js','/phase4.js','/sidebar-toggle.js','/health.js','/history.js','/manifest.webmanifest'];
 self.addEventListener('install',e=>e.waitUntil(caches.open(CACHE).then(c=>c.addAll(APP)).then(()=>self.skipWaiting())));
 self.addEventListener('activate',e=>e.waitUntil(caches.keys().then(keys=>Promise.all(keys.filter(k=>k!==CACHE).map(k=>caches.delete(k)))).then(()=>self.clients.claim())));
