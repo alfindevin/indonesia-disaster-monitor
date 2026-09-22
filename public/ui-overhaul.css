@@ -1,0 +1,167 @@
+/* Indonesia Disaster Monitor — desktop-first UI overhaul
+   Loaded after the existing styles so behavior/JS stays intact. */
+:root{
+  --idm-bg:#f4f7f9;
+  --idm-surface:#ffffff;
+  --idm-border:#e5e9ee;
+  --idm-ink:#14202b;
+  --idm-muted:#667482;
+  --idm-brand:#0f766e;
+  --idm-brand-2:#0b5f59;
+  --idm-danger:#c62828;
+  --idm-warning:#b7791f;
+  --idm-shadow:0 12px 32px rgba(15,23,42,.08);
+}
+
+/* Desktop command-center layout */
+@media (min-width:901px){
+  html,body{background:var(--idm-bg)}
+  body{overflow:hidden}
+  .shell{
+    grid-template-columns:minmax(0,1.78fr) minmax(390px,.82fr);
+    background:var(--idm-bg);
+  }
+  .map-panel{height:100vh;background:#dbe8e9}
+  .side-panel{
+    height:100vh;
+    padding:0;
+    gap:0;
+    background:var(--idm-bg);
+    border-left:1px solid var(--idm-border);
+    box-shadow:-10px 0 30px rgba(15,23,42,.04);
+  }
+  .topbar{
+    position:sticky;
+    top:0;
+    margin:0;
+    padding:18px 20px 15px;
+    background:rgba(255,255,255,.96);
+    border-bottom:1px solid var(--idm-border);
+  }
+  .topbar h1{font-size:20px;letter-spacing:-.035em}
+  .topbar-subtitle{font-size:10px}
+  .topbar button{width:34px;height:34px}
+
+  .status-strip{
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    gap:8px;
+    padding:12px 16px 0;
+  }
+  .status-strip div{
+    padding:10px 12px;
+    border-radius:10px;
+    box-shadow:none;
+  }
+
+  .filters{
+    margin:12px 16px 0;
+    grid-template-columns:repeat(2,minmax(0,1fr));
+    padding:12px;
+    border-radius:12px;
+    box-shadow:none;
+  }
+  .filter-title strong{font-size:12px}
+  .filter-title small{font-size:9px}
+
+  .incident-section{
+    min-height:0;
+    margin:14px 16px 0;
+  }
+  .incident-list{
+    max-height:calc(100vh - 405px);
+    overflow:auto;
+    padding-right:2px;
+  }
+  .incident-card{
+    padding:10px 11px;
+    box-shadow:none;
+    border-radius:10px;
+  }
+  .incident-card h3{font-size:12px}
+
+  .source-note{
+    margin:10px 16px 14px;
+    box-shadow:none;
+  }
+
+  .secondary-drawer{
+    margin:0 16px 10px;
+    box-shadow:none;
+    border-radius:10px;
+  }
+  .drawer-content{padding:0 10px 10px}
+  .stats-box,.timeline-box,.health-box,.my-area,.alert-box{box-shadow:none}
+
+  /* Keep map as the visual hero. Controls float over it but stay compact. */
+  .map-tools{
+    top:18px;
+    right:18px;
+    min-width:205px;
+    padding:12px;
+    border-radius:14px;
+    box-shadow:0 14px 35px rgba(15,23,42,.14);
+  }
+  .map-tools strong{font-size:12px}
+  .map-tools label{font-size:10px}
+  .map-tools button{min-height:34px}
+  .map-credit{left:14px;bottom:12px}
+
+  .dashboard-kpis{
+    left:18px;
+    right:18px;
+    bottom:18px;
+    gap:8px;
+    grid-template-columns:repeat(4,minmax(0,1fr));
+  }
+  .kpi-card{
+    padding:9px 11px;
+    border-radius:12px;
+    box-shadow:0 12px 30px rgba(15,23,42,.12);
+  }
+  .kpi-card strong{font-size:16px}
+  .kpi-card small{font-size:9px}
+}
+
+/* Wide desktop: give the map even more breathing room. */
+@media (min-width:1400px){
+  .shell{grid-template-columns:minmax(0,1.9fr) minmax(420px,.72fr)}
+  .incident-list{max-height:calc(100vh - 390px)}
+}
+
+/* Tablet: preserve the split while preventing a cramped sidebar. */
+@media (min-width:901px) and (max-width:1100px){
+  .shell{grid-template-columns:minmax(0,1.45fr) minmax(360px,.9fr)}
+  .incident-list{max-height:calc(100vh - 430px)}
+}
+
+/* Mobile remains a stacked map + control experience. */
+@media (max-width:900px){
+  .shell{background:var(--idm-bg)}
+  .map-panel{background:#dbe8e9}
+  .side-panel{background:var(--idm-bg)}
+  .topbar{background:rgba(255,255,255,.97)}
+  .dashboard-kpis{z-index:700}
+}
+
+/* Consistent interaction states */
+.incident-card:focus-visible,
+.timeline-item:focus-visible,
+.secondary-drawer>summary:focus-visible{
+  outline:3px solid rgba(15,118,110,.18);
+  outline-offset:2px;
+}
+
+/* Severity is communicated by text/badges, not oversized decoration. */
+.pill.high{border-color:#fecaca;background:#fff1f2;color:#b42318}
+.pill.medium{border-color:#fed7aa;background:#fff7ed;color:#b54708}
+.pill.low{border-color:#bbf7d0;background:#f0fdf4;color:#166534}
+
+/* Scrollbars stay subtle so content remains the focus. */
+.side-panel::-webkit-scrollbar,.incident-list::-webkit-scrollbar{width:7px}
+.side-panel::-webkit-scrollbar-thumb,.incident-list::-webkit-scrollbar-thumb{background:#cbd5e1;border-radius:99px}
+.side-panel::-webkit-scrollbar-track,.incident-list::-webkit-scrollbar-track{background:transparent}
+
+/* Reduced motion */
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{scroll-behavior:auto!important;transition:none!important}
+}
