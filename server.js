@@ -220,6 +220,55 @@ function pageShell({ title, description, canonical, body, jsonLd }) {
 <main class="seo-main">${body}</main><footer class="seo-footer">Sumber resmi: BMKG dan BNPB. Data dapat berubah mengikuti pembaruan sumber.</footer></body></html>`;
 }
 
+
+const TYPE_SLUGS = {
+  "gempa-bumi":"Gempa Bumi",
+  "banjir":"Banjir",
+  "tanah-longsor":"Tanah Longsor",
+  "cuaca-ekstrem":"Cuaca Ekstrem",
+  "kebakaran-hutan-dan-lahan":"Kebakaran Hutan Dan Lahan",
+  "erupsi-gunung-api":"Erupsi Gunung Api"
+};
+const PROVINCES = ["Aceh","Sumatera Utara","Sumatera Barat","Riau","Jambi","Sumatera Selatan","Bengkulu","Lampung","Kepulauan Bangka Belitung","Kepulauan Riau","Banten","DKI Jakarta","Jawa Barat","Jawa Tengah","DI Yogyakarta","Jawa Timur","Bali","Nusa Tenggara Barat","Nusa Tenggara Timur","Kalimantan Barat","Kalimantan Tengah","Kalimantan Selatan","Kalimantan Timur","Kalimantan Utara","Sulawesi Utara","Sulawesi Tengah","Sulawesi Selatan","Sulawesi Tenggara","Gorontalo","Sulawesi Barat","Maluku","Maluku Utara","Papua Barat Daya","Papua Barat","Papua Tengah","Papua Pegunungan","Papua Selatan","Papua"];
+function slugify(value){ return String(value||"").toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"").replace(/[^a-z0-9]+/g,"-").replace(/^-|-$/g,""); }
+function provinceBySlug(slug){ return PROVINCES.find(p=>slugify(p)===slug) || null; }
+function incidentCards(rows){
+  if(!rows.length) return '<p>Belum ada kejadian yang tersedia untuk filter ini.</p>';
+  return '<div class="live-list">'+rows.slice(0,100).map(i=>`<a class="live-item" href="/kejadian/${encodeURIComponent(i.id)}"><strong>${escapePageHtml(i.title)}</strong><small>${escapePageHtml(i.region||"Indonesia")} · ${escapePageHtml(i.occurredAt||"")}</small></a>`).join("")+'</div>';
+}
+async function filteredLanding({kind,value,slug}){
+  const payload=await loadIncidents();
+  let rows=payload.incidents||[];
+  let title,description,heading,kicker;
+  if(kind==="type"){
+    rows=rows.filter(i=>i.type===value);
+    heading=`${value} di Indonesia`;
+    title=`${heading} — Data Kejadian Terbaru`;
+    description=`Pantau data ${value.toLowerCase()} terbaru di Indonesia dari sumber resmi yang tersedia, lengkap dengan waktu, wilayah, dan detail kejadian.`;
+    kicker="JENIS BENCANA";
+  } else {
+    rows=rows.filter(i=>(i.province||"")===value || String(i.region||"").includes(value));
+    heading=`Bencana di ${value}`;
+    title=`${heading} — Data Kejadian Terbaru`;
+    description=`Pantau kejadian bencana terbaru di ${value} berdasarkan data BMKG dan BNPB yang tersedia.`;
+    kicker="WILAYAH";
+  }
+  const canonical=`https://indonesia-disaster-monitor.vercel.app/${kind==="type"?"jenis":"wilayah"}/${slug}`;
+  const body=`<article><p class="kicker">${kicker}</p><h1>${escapePageHtml(heading)}</h1><p class="lead">${escapePageHtml(description)}</p>
+  <p class="note">Menampilkan ${rows.length} kejadian yang tersedia pada feed saat ini. Data dapat berubah mengikuti pembaruan sumber.</p>
+  <h2>Kejadian terbaru</h2>${incidentCards(rows)}
+  <div class="link-grid"><a href="/">Buka peta nasional →</a><a href="/gempa-hari-ini">Gempa hari ini →</a><a href="/data-bencana-indonesia">Metodologi data →</a><a href="/panduan-gempa">Panduan keselamatan →</a></div></article>`;
+  return pageShell({title,description,canonical,body,jsonLd:{"@context":"https://schema.org","@type":"CollectionPage",name:heading,description,url:canonical}});
+}
+async function archiveLanding(days,label,slug){
+  const payload=await loadIncidents(); const cut=Date.now()-days*864e5;
+  const rows=(payload.incidents||[]).filter(i=>{const t=new Date(i.occurredAt||i.updatedAt).getTime();return Number.isFinite(t)&&t>=cut});
+  const canonical=`https://indonesia-disaster-monitor.vercel.app/arsip/${slug}`;
+  const description=`Arsip kejadian bencana Indonesia ${label} dari data BMKG dan BNPB yang tersedia.`;
+  const body=`<article><p class="kicker">ARSIP DATA</p><h1>Kejadian Bencana ${escapePageHtml(label)}</h1><p class="lead">${escapePageHtml(description)}</p><p class="note">${rows.length} kejadian tersedia dalam rentang ini.</p><h2>Daftar kejadian</h2>${incidentCards(rows)}<div class="link-grid"><a href="/arsip/7-hari">7 hari terakhir →</a><a href="/arsip/30-hari">30 hari terakhir →</a><a href="/">Dashboard utama →</a><a href="/data-bencana-indonesia">Tentang sumber data →</a></div></article>`;
+  return pageShell({title:`Kejadian Bencana ${label} | Indonesia Disaster Monitor`,description,canonical,body,jsonLd:{"@context":"https://schema.org","@type":"CollectionPage",name:`Kejadian Bencana ${label}`,url:canonical}});
+}
+
 async function incidentPage(id) {
   const payload = await loadIncidents();
   const incident = (payload.incidents || []).find(item => item.id === id);
@@ -244,7 +293,7 @@ ${metricRows ? `<h2>Parameter kejadian</h2><table><tbody>${metricRows}</tbody></
 
 async function dynamicSitemap() {
   const base = "https://indonesia-disaster-monitor.vercel.app";
-  const fixed = ["/","/gempa-hari-ini","/data-bencana-indonesia","/panduan-gempa","/tas-siaga-bencana","/arti-magnitudo","/regions.html"];
+  const fixed = ["/","/gempa-hari-ini","/data-bencana-indonesia","/panduan-gempa","/tas-siaga-bencana","/arti-magnitudo","/regions.html","/arsip/7-hari","/arsip/30-hari",...Object.keys(TYPE_SLUGS).map(s=>`/jenis/${s}`),...PROVINCES.map(p=>`/wilayah/${slugify(p)}`)];
   let incidentUrls = [];
   try {
     const payload = await loadIncidents();
@@ -257,4 +306,4 @@ async function dynamicSitemap() {
 
 async function serveStatic(req,res){ const url=new URL(req.url,`http://${req.headers.host}`); let requested=url.pathname==="/"?"/index.html":decodeURIComponent(url.pathname); if(!path.extname(requested) && requested!=="/"){ requested += ".html"; } const filePath=path.normalize(path.join(PUBLIC_DIR,requested)); if(!filePath.startsWith(PUBLIC_DIR)){res.writeHead(403);res.end("Forbidden");return;} try{const body=await fs.readFile(filePath);res.writeHead(200,{"content-type":contentTypes[path.extname(filePath)]||"application/octet-stream","cache-control":"public, max-age=60"});res.end(body);}catch{res.writeHead(404);res.end("Not found");}}
 
-http.createServer(async(req,res)=>{try{const url=new URL(req.url,`http://${req.headers.host}`);if(url.pathname==="/api/incidents")return json(res,200,await loadIncidents());if(url.pathname==="/api/health")return json(res,200,{ok:true,at:new Date().toISOString()});if(url.pathname==="/sitemap.xml"){const xml=await dynamicSitemap();res.writeHead(200,{"content-type":"application/xml; charset=utf-8","cache-control":"public, max-age=300"});return res.end(xml);}if(url.pathname.startsWith("/kejadian/")){const id=decodeURIComponent(url.pathname.slice("/kejadian/".length));const html=await incidentPage(id);if(!html){res.writeHead(404,{"content-type":"text/html; charset=utf-8"});return res.end(pageShell({title:"Kejadian tidak ditemukan",description:"Data kejadian tidak ditemukan.",canonical:"https://indonesia-disaster-monitor.vercel.app/",body:"<h1>Kejadian tidak ditemukan</h1><p><a href=\"/\">Kembali ke dashboard</a></p>"}));}res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}return serveStatic(req,res);}catch(error){json(res,500,{error:error.message});}}).listen(PORT,()=>console.log(`Indonesia Disaster Monitor running at http://localhost:${PORT}`));
+http.createServer(async(req,res)=>{try{const url=new URL(req.url,`http://${req.headers.host}`);if(url.pathname==="/api/incidents")return json(res,200,await loadIncidents());if(url.pathname==="/api/health")return json(res,200,{ok:true,at:new Date().toISOString()});if(url.pathname==="/sitemap.xml"){const xml=await dynamicSitemap();res.writeHead(200,{"content-type":"application/xml; charset=utf-8","cache-control":"public, max-age=300"});return res.end(xml);}if(url.pathname.startsWith("/jenis/")){const slug=decodeURIComponent(url.pathname.slice("/jenis/".length));const value=TYPE_SLUGS[slug];if(value){const html=await filteredLanding({kind:"type",value,slug});res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}}if(url.pathname.startsWith("/wilayah/")){const slug=decodeURIComponent(url.pathname.slice("/wilayah/".length));const value=provinceBySlug(slug);if(value){const html=await filteredLanding({kind:"province",value,slug});res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}}if(url.pathname==="/arsip/7-hari"){const html=await archiveLanding(7,"7 Hari Terakhir","7-hari");res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}if(url.pathname==="/arsip/30-hari"){const html=await archiveLanding(30,"30 Hari Terakhir","30-hari");res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}if(url.pathname.startsWith("/kejadian/")){const id=decodeURIComponent(url.pathname.slice("/kejadian/".length));const html=await incidentPage(id);if(!html){res.writeHead(404,{"content-type":"text/html; charset=utf-8"});return res.end(pageShell({title:"Kejadian tidak ditemukan",description:"Data kejadian tidak ditemukan.",canonical:"https://indonesia-disaster-monitor.vercel.app/",body:"<h1>Kejadian tidak ditemukan</h1><p><a href=\"/\">Kembali ke dashboard</a></p>"}));}res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}return serveStatic(req,res);}catch(error){json(res,500,{error:error.message});}}).listen(PORT,()=>console.log(`Indonesia Disaster Monitor running at http://localhost:${PORT}`));
