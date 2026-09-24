@@ -204,6 +204,57 @@ async function loadIncidents() {
   return {...payload,cache:"miss"};
 }
 
-async function serveStatic(req,res){ const url=new URL(req.url,`http://${req.headers.host}`); const requested=url.pathname==="/"?"/index.html":decodeURIComponent(url.pathname); const filePath=path.normalize(path.join(PUBLIC_DIR,requested)); if(!filePath.startsWith(PUBLIC_DIR)){res.writeHead(403);res.end("Forbidden");return;} try{const body=await fs.readFile(filePath);res.writeHead(200,{"content-type":contentTypes[path.extname(filePath)]||"application/octet-stream","cache-control":"public, max-age=60"});res.end(body);}catch{res.writeHead(404);res.end("Not found");}}
 
-http.createServer(async(req,res)=>{try{const url=new URL(req.url,`http://${req.headers.host}`);if(url.pathname==="/api/incidents")return json(res,200,await loadIncidents());if(url.pathname==="/api/health")return json(res,200,{ok:true,at:new Date().toISOString()});return serveStatic(req,res);}catch(error){json(res,500,{error:error.message});}}).listen(PORT,()=>console.log(`Indonesia Disaster Monitor running at http://localhost:${PORT}`));
+function escapePageHtml(value) {
+  return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[ch]));
+}
+
+function pageShell({ title, description, canonical, body, jsonLd }) {
+  const schema = jsonLd ? '<script type="application/ld+json">' + JSON.stringify(jsonLd).replace(/</g, "\\u003c") + '</script>' : "";
+  return `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>${escapePageHtml(title)}</title><meta name="description" content="${escapePageHtml(description)}"><meta name="robots" content="index,follow">
+<link rel="canonical" href="${escapePageHtml(canonical)}"><meta property="og:type" content="website"><meta property="og:title" content="${escapePageHtml(title)}">
+<meta property="og:description" content="${escapePageHtml(description)}"><meta property="og:url" content="${escapePageHtml(canonical)}">
+<meta name="twitter:card" content="summary"><link rel="stylesheet" href="/seo.css">${schema}</head><body>
+<header class="seo-header"><a href="/" class="brand">Indonesia Disaster Monitor</a><nav><a href="/gempa-hari-ini">Gempa Hari Ini</a><a href="/data-bencana-indonesia">Data Bencana</a><a href="/panduan-gempa">Panduan</a></nav></header>
+<main class="seo-main">${body}</main><footer class="seo-footer">Sumber resmi: BMKG dan BNPB. Data dapat berubah mengikuti pembaruan sumber.</footer></body></html>`;
+}
+
+async function incidentPage(id) {
+  const payload = await loadIncidents();
+  const incident = (payload.incidents || []).find(item => item.id === id);
+  if (!incident) return null;
+  const canonical = `https://indonesia-disaster-monitor.vercel.app/kejadian/${encodeURIComponent(incident.id)}`;
+  const m = incident.metrics || {};
+  const metricRows = Object.entries(m).filter(([,v]) => v !== null && v !== undefined && v !== "").map(([k,v]) => `<tr><th>${escapePageHtml(k)}</th><td>${escapePageHtml(v)}</td></tr>`).join("");
+  const body = `<article><p class="kicker">${escapePageHtml(incident.source)} · ${escapePageHtml(incident.type)}</p><h1>${escapePageHtml(incident.title)}</h1>
+<p class="lead">${escapePageHtml(incident.summary || "Informasi kejadian bencana dari sumber resmi.")}</p>
+<div class="facts"><div><span>Wilayah</span><strong>${escapePageHtml(incident.region || "Indonesia")}</strong></div><div><span>Waktu</span><strong>${escapePageHtml(incident.occurredAt || "-")}</strong></div><div><span>Level</span><strong>${escapePageHtml(incident.severity || "unknown")}</strong></div><div><span>Sumber</span><strong>${escapePageHtml(incident.source)}</strong></div></div>
+${metricRows ? `<h2>Parameter kejadian</h2><table><tbody>${metricRows}</tbody></table>` : ""}
+<p><a class="cta" href="/">Lihat di peta pemantauan</a> <a href="${escapePageHtml(incident.sourceUrl || "/")}" rel="nofollow noreferrer" target="_blank">Buka sumber resmi</a></p>
+<section><h2>Tentang data ini</h2><p>Halaman ini dibuat dari feed sumber resmi dan diperbarui mengikuti ketersediaan data. Lokasi administratif tertentu dapat berupa titik perkiraan/centroid bila sumber tidak menyediakan koordinat rinci.</p></section></article>`;
+  return pageShell({
+    title: `${incident.title} | Indonesia Disaster Monitor`,
+    description: `${incident.title}. ${incident.summary || ""}`.slice(0,155),
+    canonical,
+    body,
+    jsonLd: { "@context":"https://schema.org", "@type":"Report", headline:incident.title, datePublished:incident.occurredAt || incident.updatedAt, dateModified:incident.updatedAt, about:incident.type, spatialCoverage:incident.region, isBasedOn:incident.sourceUrl }
+  });
+}
+
+async function dynamicSitemap() {
+  const base = "https://indonesia-disaster-monitor.vercel.app";
+  const fixed = ["/","/gempa-hari-ini","/data-bencana-indonesia","/panduan-gempa","/tas-siaga-bencana","/arti-magnitudo","/regions.html"];
+  let incidentUrls = [];
+  try {
+    const payload = await loadIncidents();
+    incidentUrls = (payload.incidents || []).slice(0,200).map(i => `/kejadian/${encodeURIComponent(i.id)}`);
+  } catch (_) {}
+  const urls = [...fixed, ...incidentUrls];
+  return '<?xml version="1.0" encoding="UTF-8"?>\n<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">' +
+    urls.map(u => `<url><loc>${base}${u}</loc></url>`).join("") + "</urlset>";
+}
+
+async function serveStatic(req,res){ const url=new URL(req.url,`http://${req.headers.host}`); let requested=url.pathname==="/"?"/index.html":decodeURIComponent(url.pathname); if(!path.extname(requested) && requested!=="/"){ requested += ".html"; } const filePath=path.normalize(path.join(PUBLIC_DIR,requested)); if(!filePath.startsWith(PUBLIC_DIR)){res.writeHead(403);res.end("Forbidden");return;} try{const body=await fs.readFile(filePath);res.writeHead(200,{"content-type":contentTypes[path.extname(filePath)]||"application/octet-stream","cache-control":"public, max-age=60"});res.end(body);}catch{res.writeHead(404);res.end("Not found");}}
+
+http.createServer(async(req,res)=>{try{const url=new URL(req.url,`http://${req.headers.host}`);if(url.pathname==="/api/incidents")return json(res,200,await loadIncidents());if(url.pathname==="/api/health")return json(res,200,{ok:true,at:new Date().toISOString()});if(url.pathname==="/sitemap.xml"){const xml=await dynamicSitemap();res.writeHead(200,{"content-type":"application/xml; charset=utf-8","cache-control":"public, max-age=300"});return res.end(xml);}if(url.pathname.startsWith("/kejadian/")){const id=decodeURIComponent(url.pathname.slice("/kejadian/".length));const html=await incidentPage(id);if(!html){res.writeHead(404,{"content-type":"text/html; charset=utf-8"});return res.end(pageShell({title:"Kejadian tidak ditemukan",description:"Data kejadian tidak ditemukan.",canonical:"https://indonesia-disaster-monitor.vercel.app/",body:"<h1>Kejadian tidak ditemukan</h1><p><a href=\"/\">Kembali ke dashboard</a></p>"}));}res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}return serveStatic(req,res);}catch(error){json(res,500,{error:error.message});}}).listen(PORT,()=>console.log(`Indonesia Disaster Monitor running at http://localhost:${PORT}`));
