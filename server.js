@@ -236,6 +236,41 @@ function incidentCards(rows){
   if(!rows.length) return '<p>Belum ada kejadian yang tersedia untuk filter ini.</p>';
   return '<div class="live-list">'+rows.slice(0,100).map(i=>`<a class="live-item" href="/kejadian/${encodeURIComponent(i.id)}"><strong>${escapePageHtml(i.title)}</strong><small>${escapePageHtml(i.region||"Indonesia")} · ${escapePageHtml(i.occurredAt||"")}</small></a>`).join("")+'</div>';
 }
+
+function cityEntriesFromIncidents(items){
+  const map=new Map();
+  for(const i of items||[]){
+    if(i.source!=="BNPB") continue;
+    const region=String(i.region||"");
+    const parts=region.split(",").map(x=>x.trim()).filter(Boolean);
+    const city=parts[0]||"";
+    const province=i.province||parts[1]||"";
+    if(!city||!province) continue;
+    const key=slugify(province)+"__"+slugify(city);
+    if(!map.has(key)) map.set(key,{city,province,slug:slugify(city),provinceSlug:slugify(province)});
+  }
+  return [...map.values()];
+}
+function breadcrumbJson(items){
+  return {"@context":"https://schema.org","@type":"BreadcrumbList","itemListElement":items.map((x,idx)=>({"@type":"ListItem","position":idx+1,"name":x.name,"item":x.url}))};
+}
+async function cityLanding(provinceSlug,citySlug){
+  const payload=await loadIncidents();
+  const entries=cityEntriesFromIncidents(payload.incidents||[]);
+  const match=entries.find(x=>x.provinceSlug===provinceSlug&&x.slug===citySlug);
+  if(!match) return null;
+  const rows=(payload.incidents||[]).filter(i=>String(i.region||"").startsWith(match.city) && (i.province===match.province || String(i.region||"").includes(match.province)));
+  const canonical=`https://indonesia-disaster-monitor.vercel.app/wilayah/${provinceSlug}/${citySlug}`;
+  const description=`Pantau kejadian bencana terbaru di ${match.city}, ${match.province}, berdasarkan data BNPB dan sumber resmi yang tersedia.`;
+  const body=`<article><p class="kicker">KOTA / KABUPATEN</p><h1>Bencana di ${escapePageHtml(match.city)}</h1><p class="lead">${escapePageHtml(description)}</p>
+  <p class="note">Menampilkan ${rows.length} kejadian yang tersedia pada feed saat ini.</p><h2>Kejadian terbaru</h2>${incidentCards(rows)}
+  <div class="link-grid"><a href="/wilayah/${provinceSlug}">Semua kejadian ${escapePageHtml(match.province)} →</a><a href="/">Peta nasional →</a><a href="/arsip/7-hari">7 hari terakhir →</a><a href="/data-bencana-indonesia">Metodologi data →</a></div></article>`;
+  return pageShell({title:`Bencana di ${match.city}, ${match.province} — Data Terbaru`,description,canonical,body,jsonLd:[
+    {"@context":"https://schema.org","@type":"CollectionPage","name":`Bencana di ${match.city}`,"description":description,"url":canonical},
+    breadcrumbJson([{name:"Indonesia Disaster Monitor",url:"https://indonesia-disaster-monitor.vercel.app/"},{name:match.province,url:`https://indonesia-disaster-monitor.vercel.app/wilayah/${provinceSlug}`},{name:match.city,url:canonical}])
+  ]});
+}
+
 async function filteredLanding({kind,value,slug}){
   const payload=await loadIncidents();
   let rows=payload.incidents||[];
@@ -291,9 +326,18 @@ ${metricRows ? `<h2>Parameter kejadian</h2><table><tbody>${metricRows}</tbody></
   });
 }
 
+
+function xmlEscape(value){return String(value??"").replace(/[<>&'"]/g,ch=>({"<":"&lt;",">":"&gt;","&":"&amp;","'":"&apos;",'"':"&quot;"}[ch]));}
+async function rssFeed(){
+  const payload=await loadIncidents();
+  const base="https://indonesia-disaster-monitor.vercel.app";
+  const items=(payload.incidents||[]).slice(0,50).map(i=>`<item><title>${xmlEscape(i.title)}</title><link>${base}/kejadian/${encodeURIComponent(i.id)}</link><guid isPermaLink="true">${base}/kejadian/${encodeURIComponent(i.id)}</guid><pubDate>${new Date(i.occurredAt||i.updatedAt||Date.now()).toUTCString()}</pubDate><description>${xmlEscape(i.summary||i.region||"")}</description></item>`).join("");
+  return `<?xml version="1.0" encoding="UTF-8"?><rss version="2.0"><channel><title>Indonesia Disaster Monitor</title><link>${base}/</link><description>Feed kejadian bencana terbaru Indonesia</description><language>id</language><lastBuildDate>${new Date().toUTCString()}</lastBuildDate>${items}</channel></rss>`;
+}
+
 async function dynamicSitemap() {
   const base = "https://indonesia-disaster-monitor.vercel.app";
-  const fixed = ["/","/gempa-hari-ini","/data-bencana-indonesia","/panduan-gempa","/tas-siaga-bencana","/arti-magnitudo","/regions.html","/arsip/7-hari","/arsip/30-hari",...Object.keys(TYPE_SLUGS).map(s=>`/jenis/${s}`),...PROVINCES.map(p=>`/wilayah/${slugify(p)}`)];
+  const payloadForMap = await loadIncidents().catch(()=>({incidents:[]})); const cityUrls=cityEntriesFromIncidents(payloadForMap.incidents||[]).slice(0,250).map(x=>`/wilayah/${x.provinceSlug}/${x.slug}`); const fixed = ["/","/gempa-hari-ini","/data-bencana-indonesia","/panduan-gempa","/tas-siaga-bencana","/arti-magnitudo","/regions.html","/arsip/7-hari","/arsip/30-hari","/feed.xml",...Object.keys(TYPE_SLUGS).map(s=>`/jenis/${s}`),...PROVINCES.map(p=>`/wilayah/${slugify(p)}`),...cityUrls];
   let incidentUrls = [];
   try {
     const payload = await loadIncidents();
@@ -306,4 +350,4 @@ async function dynamicSitemap() {
 
 async function serveStatic(req,res){ const url=new URL(req.url,`http://${req.headers.host}`); let requested=url.pathname==="/"?"/index.html":decodeURIComponent(url.pathname); if(!path.extname(requested) && requested!=="/"){ requested += ".html"; } const filePath=path.normalize(path.join(PUBLIC_DIR,requested)); if(!filePath.startsWith(PUBLIC_DIR)){res.writeHead(403);res.end("Forbidden");return;} try{const body=await fs.readFile(filePath);res.writeHead(200,{"content-type":contentTypes[path.extname(filePath)]||"application/octet-stream","cache-control":"public, max-age=60"});res.end(body);}catch{res.writeHead(404);res.end("Not found");}}
 
-http.createServer(async(req,res)=>{try{const url=new URL(req.url,`http://${req.headers.host}`);if(url.pathname==="/api/incidents")return json(res,200,await loadIncidents());if(url.pathname==="/api/health")return json(res,200,{ok:true,at:new Date().toISOString()});if(url.pathname==="/sitemap.xml"){const xml=await dynamicSitemap();res.writeHead(200,{"content-type":"application/xml; charset=utf-8","cache-control":"public, max-age=300"});return res.end(xml);}if(url.pathname.startsWith("/jenis/")){const slug=decodeURIComponent(url.pathname.slice("/jenis/".length));const value=TYPE_SLUGS[slug];if(value){const html=await filteredLanding({kind:"type",value,slug});res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}}if(url.pathname.startsWith("/wilayah/")){const slug=decodeURIComponent(url.pathname.slice("/wilayah/".length));const value=provinceBySlug(slug);if(value){const html=await filteredLanding({kind:"province",value,slug});res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}}if(url.pathname==="/arsip/7-hari"){const html=await archiveLanding(7,"7 Hari Terakhir","7-hari");res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}if(url.pathname==="/arsip/30-hari"){const html=await archiveLanding(30,"30 Hari Terakhir","30-hari");res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}if(url.pathname.startsWith("/kejadian/")){const id=decodeURIComponent(url.pathname.slice("/kejadian/".length));const html=await incidentPage(id);if(!html){res.writeHead(404,{"content-type":"text/html; charset=utf-8"});return res.end(pageShell({title:"Kejadian tidak ditemukan",description:"Data kejadian tidak ditemukan.",canonical:"https://indonesia-disaster-monitor.vercel.app/",body:"<h1>Kejadian tidak ditemukan</h1><p><a href=\"/\">Kembali ke dashboard</a></p>"}));}res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}return serveStatic(req,res);}catch(error){json(res,500,{error:error.message});}}).listen(PORT,()=>console.log(`Indonesia Disaster Monitor running at http://localhost:${PORT}`));
+http.createServer(async(req,res)=>{try{const url=new URL(req.url,`http://${req.headers.host}`);if(url.pathname==="/api/incidents")return json(res,200,await loadIncidents());if(url.pathname==="/api/health")return json(res,200,{ok:true,at:new Date().toISOString()});if(url.pathname==="/feed.xml"){const xml=await rssFeed();res.writeHead(200,{"content-type":"application/rss+xml; charset=utf-8","cache-control":"public, max-age=300"});return res.end(xml);}if(url.pathname==="/sitemap.xml"){const xml=await dynamicSitemap();res.writeHead(200,{"content-type":"application/xml; charset=utf-8","cache-control":"public, max-age=300"});return res.end(xml);}if(url.pathname.startsWith("/jenis/")){const slug=decodeURIComponent(url.pathname.slice("/jenis/".length));const value=TYPE_SLUGS[slug];if(value){const html=await filteredLanding({kind:"type",value,slug});res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}}if(url.pathname.startsWith("/wilayah/")){const parts=url.pathname.split("/").filter(Boolean);if(parts.length===3){const html=await cityLanding(decodeURIComponent(parts[1]),decodeURIComponent(parts[2]));if(html){res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}}const slug=decodeURIComponent(url.pathname.slice("/wilayah/".length));const value=provinceBySlug(slug);if(value){const html=await filteredLanding({kind:"province",value,slug});res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}}if(url.pathname==="/arsip/7-hari"){const html=await archiveLanding(7,"7 Hari Terakhir","7-hari");res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}if(url.pathname==="/arsip/30-hari"){const html=await archiveLanding(30,"30 Hari Terakhir","30-hari");res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}if(url.pathname.startsWith("/kejadian/")){const id=decodeURIComponent(url.pathname.slice("/kejadian/".length));const html=await incidentPage(id);if(!html){res.writeHead(404,{"content-type":"text/html; charset=utf-8"});return res.end(pageShell({title:"Kejadian tidak ditemukan",description:"Data kejadian tidak ditemukan.",canonical:"https://indonesia-disaster-monitor.vercel.app/",body:"<h1>Kejadian tidak ditemukan</h1><p><a href=\"/\">Kembali ke dashboard</a></p>"}));}res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}return serveStatic(req,res);}catch(error){json(res,500,{error:error.message});}}).listen(PORT,()=>console.log(`Indonesia Disaster Monitor running at http://localhost:${PORT}`));
