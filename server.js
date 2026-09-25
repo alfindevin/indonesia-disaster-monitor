@@ -5,9 +5,10 @@ const { URL } = require("url");
 
 const PORT = Number(process.env.PORT || 5173);
 const PUBLIC_DIR = path.join(__dirname, "public");
-const CACHE_FILE = path.join(__dirname, "work", "cache.json");
 const CACHE_TTL_MS = 5 * 60 * 1000;
 const ADMIN_TTL_MS = 60 * 60 * 1000;
+const RATE_LIMIT_WINDOW_MS = 60 * 1000;
+const RATE_LIMIT_MAX = 30;
 
 const SOURCES = {
   bmkgLatest: "https://data.bmkg.go.id/DataMKG/TEWS/autogempa.json",
@@ -21,10 +22,67 @@ const SOURCES = {
 const contentTypes = { ".html": "text/html; charset=utf-8", ".css": "text/css; charset=utf-8", ".js": "application/javascript; charset=utf-8", ".json": "application/json; charset=utf-8", ".svg": "image/svg+xml" };
 let adminCache = null;
 let adminCacheAt = 0;
+let incidentCache = null;
+let incidentCacheAt = 0;
+let incidentLoadPromise = null;
+const apiRateLimits = new Map();
 
-function json(res, status, body) {
-  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store" });
+const CONTENT_SECURITY_POLICY = [
+  "default-src 'self'",
+  "base-uri 'self'",
+  "form-action 'self'",
+  "frame-ancestors 'none'",
+  "object-src 'none'",
+  "script-src 'self' 'unsafe-inline' https://unpkg.com",
+  "style-src 'self' 'unsafe-inline' https://unpkg.com",
+  "img-src 'self' data: blob: https://unpkg.com https://tile.openstreetmap.org https://*.tile.openstreetmap.org https://static.bmkg.go.id",
+  "font-src 'self' data:",
+  "connect-src 'self' https://*.vercel-insights.com",
+  "manifest-src 'self'",
+  "worker-src 'self' blob:",
+  "upgrade-insecure-requests",
+].join("; ");
+
+function applySecurityHeaders(res) {
+  res.setHeader("Content-Security-Policy", CONTENT_SECURITY_POLICY);
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "strict-origin-when-cross-origin");
+  res.setHeader("Permissions-Policy", "geolocation=(self), camera=(), microphone=(), payment=(), usb=()");
+  res.setHeader("Cross-Origin-Opener-Policy", "same-origin");
+  res.setHeader("Cross-Origin-Resource-Policy", "same-origin");
+  res.setHeader("Strict-Transport-Security", "max-age=63072000; includeSubDomains; preload");
+}
+
+function json(res, status, body, extraHeaders = {}) {
+  res.writeHead(status, { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", ...extraHeaders });
   res.end(JSON.stringify(body, null, 2));
+}
+
+function clientIp(req) {
+  const forwarded = String(req.headers["x-forwarded-for"] || "").split(",")[0].trim();
+  return (forwarded || req.socket?.remoteAddress || "unknown").slice(0, 80);
+}
+
+function checkApiRateLimit(req) {
+  const now = Date.now();
+  const key = clientIp(req);
+  let entry = apiRateLimits.get(key);
+  if (!entry || now - entry.startedAt >= RATE_LIMIT_WINDOW_MS) {
+    entry = { startedAt: now, count: 0 };
+    apiRateLimits.set(key, entry);
+  }
+  entry.count += 1;
+  if (apiRateLimits.size > 1000) {
+    for (const [ip, value] of apiRateLimits) {
+      if (now - value.startedAt >= RATE_LIMIT_WINDOW_MS) apiRateLimits.delete(ip);
+    }
+  }
+  return {
+    allowed: entry.count <= RATE_LIMIT_MAX,
+    remaining: Math.max(0, RATE_LIMIT_MAX - entry.count),
+    retryAfter: Math.max(1, Math.ceil((RATE_LIMIT_WINDOW_MS - (now - entry.startedAt)) / 1000)),
+  };
 }
 
 async function fetchJson(url) {
@@ -179,29 +237,43 @@ async function resolveBnpbPoint(province, city) {
 }
 
 function dedupeIncidents(items) { const map = new Map(); for (const item of items.filter(Boolean)) { const key = item.sourceId || item.id; const prev = map.get(key); if (!prev || String(item.summary||"").length > String(prev.summary||"").length) map.set(key,item); } return [...map.values()].sort((a,b)=>new Date(b.occurredAt||0)-new Date(a.occurredAt||0)); }
-async function readCache() { try { return JSON.parse(await fs.readFile(CACHE_FILE,"utf8")); } catch { return null; } }
-async function writeCache(data) { await fs.mkdir(path.dirname(CACHE_FILE),{recursive:true}); await fs.writeFile(CACHE_FILE,JSON.stringify(data,null,2)); }
-
 async function loadIncidents() {
-  const cached = await readCache();
-  if (cached && Date.now()-cached.cachedAt < CACHE_TTL_MS) return { ...cached, cache:"hit" };
-  const errors=[]; const sourceEntries=Object.entries(SOURCES).filter(([name])=>name!=="bnpbAdmin");
-  const results=await Promise.allSettled(sourceEntries.map(async([name,url])=>[name,name==="bnpbTable"?await fetchText(url):await fetchJson(url)]));
-  const data={}; results.forEach((r,i)=>{ if(r.status==="fulfilled") data[r.value[0]]=r.value[1]; else errors.push({source:sourceEntries[i][0],message:r.reason?.message||"Unknown error"}); });
-  const rows=typeof data.bnpbTable==="string"?parseBnpbTable(data.bnpbTable):[];
-  const tableIncidents=[]; for(let i=0;i<rows.length;i++){ const row=rows[i]; const point=await resolveBnpbPoint(row.province,row.city); const incident=normalizeBnpbTable(row,i,point); if(incident)tableIncidents.push(incident); }
-  const incidents=dedupeIncidents([
-    normalizeBmkg(data.bmkgLatest?.Infogempa?.gempa||{},"latest"),
-    ...(data.bmkgM5?.Infogempa?.gempa||[]).map(x=>normalizeBmkg(x,"m5")),
-    ...(data.bmkgFelt?.Infogempa?.gempa||[]).map(x=>normalizeBmkg(x,"felt")),
-    ...(data.bnpbDashboard?.features||[]).map(normalizeBnpb), ...tableIncidents,
-  ]);
-  const payload={cachedAt:Date.now(),generatedAt:new Date().toISOString(),cacheTtlSeconds:CACHE_TTL_MS/1000,incidents,errors,sources:[
-    {name:"BMKG Data Gempabumi Terbuka",url:"https://data.bmkg.go.id/gempabumi/",updateMode:"Diperbarui setiap ada peristiwa gempa; batas akses 60 permintaan/menit/IP.",realtimeClaim:"event-driven, bukan jaminan detik-per-detik"},
-    {name:"BNPB Data Bencana / GIS",url:"https://gis.bnpb.go.id/databencana/",updateMode:"Data kejadian terlapor dari layanan GIS BNPB.",realtimeClaim:"near real-time/terlapor sesuai pembaruan sumber"},
-    {name:"PVMBG MAGMA Indonesia",url:"https://magma.esdm.go.id/",updateMode:"Quasi real-time untuk kebencanaan geologi; API publik resmi belum terdokumentasi stabil.",realtimeClaim:"fase berikutnya"},
-  ]};
-  return {...payload,cache:"miss"};
+  const now = Date.now();
+  if (incidentCache && now - incidentCacheAt < CACHE_TTL_MS) return { ...incidentCache, cache:"hit" };
+
+  if (incidentLoadPromise) {
+    const shared = await incidentLoadPromise;
+    return { ...shared, cache:"shared" };
+  }
+
+  incidentLoadPromise = (async () => {
+    const errors=[]; const sourceEntries=Object.entries(SOURCES).filter(([name])=>name!=="bnpbAdmin");
+    const results=await Promise.allSettled(sourceEntries.map(async([name,url])=>[name,name==="bnpbTable"?await fetchText(url):await fetchJson(url)]));
+    const data={}; results.forEach((r,i)=>{ if(r.status==="fulfilled") data[r.value[0]]=r.value[1]; else errors.push({source:sourceEntries[i][0],message:r.reason?.message||"Unknown error"}); });
+    const rows=typeof data.bnpbTable==="string"?parseBnpbTable(data.bnpbTable):[];
+    const tableIncidents=[]; for(let i=0;i<rows.length;i++){ const row=rows[i]; const point=await resolveBnpbPoint(row.province,row.city); const incident=normalizeBnpbTable(row,i,point); if(incident)tableIncidents.push(incident); }
+    const incidents=dedupeIncidents([
+      normalizeBmkg(data.bmkgLatest?.Infogempa?.gempa||{},"latest"),
+      ...(data.bmkgM5?.Infogempa?.gempa||[]).map(x=>normalizeBmkg(x,"m5")),
+      ...(data.bmkgFelt?.Infogempa?.gempa||[]).map(x=>normalizeBmkg(x,"felt")),
+      ...(data.bnpbDashboard?.features||[]).map(normalizeBnpb), ...tableIncidents,
+    ]);
+    const payload={cachedAt:Date.now(),generatedAt:new Date().toISOString(),cacheTtlSeconds:CACHE_TTL_MS/1000,incidents,errors,sources:[
+      {name:"BMKG Data Gempabumi Terbuka",url:"https://data.bmkg.go.id/gempabumi/",updateMode:"Diperbarui setiap ada peristiwa gempa; batas akses 60 permintaan/menit/IP.",realtimeClaim:"event-driven, bukan jaminan detik-per-detik"},
+      {name:"BNPB Data Bencana / GIS",url:"https://gis.bnpb.go.id/databencana/",updateMode:"Data kejadian terlapor dari layanan GIS BNPB.",realtimeClaim:"near real-time/terlapor sesuai pembaruan sumber"},
+      {name:"PVMBG MAGMA Indonesia",url:"https://magma.esdm.go.id/",updateMode:"Quasi real-time untuk kebencanaan geologi; API publik resmi belum terdokumentasi stabil.",realtimeClaim:"fase berikutnya"},
+    ]};
+    incidentCache = payload;
+    incidentCacheAt = Date.now();
+    return payload;
+  })();
+
+  try {
+    const fresh = await incidentLoadPromise;
+    return { ...fresh, cache:"miss" };
+  } finally {
+    incidentLoadPromise = null;
+  }
 }
 
 
@@ -348,6 +420,129 @@ async function dynamicSitemap() {
     urls.map(u => `<url><loc>${base}${u}</loc></url>`).join("") + "</urlset>";
 }
 
-async function serveStatic(req,res){ const url=new URL(req.url,`http://${req.headers.host}`); let requested=url.pathname==="/"?"/index.html":decodeURIComponent(url.pathname); if(!path.extname(requested) && requested!=="/"){ requested += ".html"; } const filePath=path.normalize(path.join(PUBLIC_DIR,requested)); if(!filePath.startsWith(PUBLIC_DIR)){res.writeHead(403);res.end("Forbidden");return;} try{const body=await fs.readFile(filePath);res.writeHead(200,{"content-type":contentTypes[path.extname(filePath)]||"application/octet-stream","cache-control":"public, max-age=60"});res.end(body);}catch{res.writeHead(404);res.end("Not found");}}
+async function serveStatic(req,res){
+  const url=new URL(req.url,`http://${req.headers.host || "localhost"}`);
+  let requested;
+  try {
+    requested=url.pathname==="/"?"/index.html":decodeURIComponent(url.pathname);
+  } catch {
+    res.writeHead(400,{"content-type":"text/plain; charset=utf-8"});
+    return res.end("Bad request");
+  }
+  if(!path.extname(requested) && requested!=="/") requested += ".html";
+  const filePath=path.normalize(path.join(PUBLIC_DIR,requested));
+  const relative=path.relative(PUBLIC_DIR,filePath);
+  if(relative.startsWith("..") || path.isAbsolute(relative)){
+    res.writeHead(403,{"content-type":"text/plain; charset=utf-8"});
+    return res.end("Forbidden");
+  }
+  try{
+    const body=await fs.readFile(filePath);
+    res.writeHead(200,{"content-type":contentTypes[path.extname(filePath)]||"application/octet-stream","cache-control":"public, max-age=60"});
+    res.end(body);
+  }catch{
+    res.writeHead(404,{"content-type":"text/plain; charset=utf-8"});
+    res.end("Not found");
+  }
+}
 
-http.createServer(async(req,res)=>{try{const url=new URL(req.url,`http://${req.headers.host}`);if(url.pathname==="/api/incidents")return json(res,200,await loadIncidents());if(url.pathname==="/api/health")return json(res,200,{ok:true,at:new Date().toISOString()});if(url.pathname==="/feed.xml"){const xml=await rssFeed();res.writeHead(200,{"content-type":"application/rss+xml; charset=utf-8","cache-control":"public, max-age=300"});return res.end(xml);}if(url.pathname==="/sitemap.xml"){const xml=await dynamicSitemap();res.writeHead(200,{"content-type":"application/xml; charset=utf-8","cache-control":"public, max-age=300"});return res.end(xml);}if(url.pathname.startsWith("/jenis/")){const slug=decodeURIComponent(url.pathname.slice("/jenis/".length));const value=TYPE_SLUGS[slug];if(value){const html=await filteredLanding({kind:"type",value,slug});res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}}if(url.pathname.startsWith("/wilayah/")){const parts=url.pathname.split("/").filter(Boolean);if(parts.length===3){const html=await cityLanding(decodeURIComponent(parts[1]),decodeURIComponent(parts[2]));if(html){res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}}const slug=decodeURIComponent(url.pathname.slice("/wilayah/".length));const value=provinceBySlug(slug);if(value){const html=await filteredLanding({kind:"province",value,slug});res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}}if(url.pathname==="/arsip/7-hari"){const html=await archiveLanding(7,"7 Hari Terakhir","7-hari");res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}if(url.pathname==="/arsip/30-hari"){const html=await archiveLanding(30,"30 Hari Terakhir","30-hari");res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}if(url.pathname.startsWith("/kejadian/")){const id=decodeURIComponent(url.pathname.slice("/kejadian/".length));const html=await incidentPage(id);if(!html){res.writeHead(404,{"content-type":"text/html; charset=utf-8"});return res.end(pageShell({title:"Kejadian tidak ditemukan",description:"Data kejadian tidak ditemukan.",canonical:"https://indonesia-disaster-monitor.vercel.app/",body:"<h1>Kejadian tidak ditemukan</h1><p><a href=\"/\">Kembali ke dashboard</a></p>"}));}res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});return res.end(html);}return serveStatic(req,res);}catch(error){json(res,500,{error:error.message});}}).listen(PORT,()=>console.log(`Indonesia Disaster Monitor running at http://localhost:${PORT}`));
+http.createServer(async(req,res)=>{
+  applySecurityHeaders(res);
+  try{
+    const url=new URL(req.url,`http://${req.headers.host || "localhost"}`);
+
+    if(!["GET","HEAD"].includes(req.method || "GET")){
+      res.writeHead(405,{"content-type":"text/plain; charset=utf-8","allow":"GET, HEAD","cache-control":"no-store"});
+      return res.end("Method not allowed");
+    }
+
+    if(url.pathname==="/api/incidents"){
+      if(url.search){
+        res.writeHead(308,{"location":"/api/incidents","cache-control":"no-store"});
+        return res.end();
+      }
+      const limit=checkApiRateLimit(req);
+      if(!limit.allowed){
+        return json(res,429,{error:"Too many requests"},{ "retry-after":String(limit.retryAfter), "x-ratelimit-limit":String(RATE_LIMIT_MAX), "x-ratelimit-remaining":"0" });
+      }
+      const payload=await loadIncidents();
+      return json(res,200,payload,{
+        "cache-control":"public, max-age=30, stale-while-revalidate=60",
+        "cdn-cache-control":"public, s-maxage=300, stale-while-revalidate=600",
+        "vercel-cdn-cache-control":"public, s-maxage=300, stale-while-revalidate=600",
+        "x-ratelimit-limit":String(RATE_LIMIT_MAX),
+        "x-ratelimit-remaining":String(limit.remaining)
+      });
+    }
+
+    if(url.pathname==="/api/health") return json(res,200,{ok:true,at:new Date().toISOString()});
+
+    if(url.pathname==="/feed.xml"){
+      const xml=await rssFeed();
+      res.writeHead(200,{"content-type":"application/rss+xml; charset=utf-8","cache-control":"public, max-age=300"});
+      return res.end(xml);
+    }
+
+    if(url.pathname==="/sitemap.xml"){
+      const xml=await dynamicSitemap();
+      res.writeHead(200,{"content-type":"application/xml; charset=utf-8","cache-control":"public, max-age=300"});
+      return res.end(xml);
+    }
+
+    if(url.pathname.startsWith("/jenis/")){
+      const slug=decodeURIComponent(url.pathname.slice("/jenis/".length));
+      const value=TYPE_SLUGS[slug];
+      if(value){
+        const html=await filteredLanding({kind:"type",value,slug});
+        res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});
+        return res.end(html);
+      }
+    }
+
+    if(url.pathname.startsWith("/wilayah/")){
+      const parts=url.pathname.split("/").filter(Boolean);
+      if(parts.length===3){
+        const html=await cityLanding(decodeURIComponent(parts[1]),decodeURIComponent(parts[2]));
+        if(html){
+          res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});
+          return res.end(html);
+        }
+      }
+      const slug=decodeURIComponent(url.pathname.slice("/wilayah/".length));
+      const value=provinceBySlug(slug);
+      if(value){
+        const html=await filteredLanding({kind:"province",value,slug});
+        res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});
+        return res.end(html);
+      }
+    }
+
+    if(url.pathname==="/arsip/7-hari"){
+      const html=await archiveLanding(7,"7 Hari Terakhir","7-hari");
+      res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});
+      return res.end(html);
+    }
+
+    if(url.pathname==="/arsip/30-hari"){
+      const html=await archiveLanding(30,"30 Hari Terakhir","30-hari");
+      res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});
+      return res.end(html);
+    }
+
+    if(url.pathname.startsWith("/kejadian/")){
+      const id=decodeURIComponent(url.pathname.slice("/kejadian/".length));
+      const html=await incidentPage(id);
+      if(!html){
+        res.writeHead(404,{"content-type":"text/html; charset=utf-8"});
+        return res.end(pageShell({title:"Kejadian tidak ditemukan",description:"Data kejadian tidak ditemukan.",canonical:"https://indonesia-disaster-monitor.vercel.app/",body:"<h1>Kejadian tidak ditemukan</h1><p><a href=\"/\">Kembali ke dashboard</a></p>"}));
+      }
+      res.writeHead(200,{"content-type":"text/html; charset=utf-8","cache-control":"public, max-age=300"});
+      return res.end(html);
+    }
+
+    return serveStatic(req,res);
+  }catch(error){
+    console.error("Request failed", error);
+    return json(res,500,{error:"Internal Server Error"});
+  }
+}).listen(PORT,()=>console.log(`Indonesia Disaster Monitor running at http://localhost:${PORT}`));
