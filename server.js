@@ -281,7 +281,78 @@ function escapePageHtml(value) {
   return String(value ?? "").replace(/[&<>"']/g, ch => ({ "&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#039;" }[ch]));
 }
 
-function pageShell({ title, description, canonical, body, jsonLd }) {
+
+const SUPPORT_LAYOUT_STYLE = `<style>
+  /* Reserve room for the fixed support banner without changing its visual design. */
+  body:has(.ahb-toggle:not(:checked)) .side-panel { padding-bottom: 96px; }
+  body:has(.ahb-toggle:not(:checked)) .map-credit { bottom: 92px !important; }
+  body:has(.ahb-toggle:not(:checked)) .dashboard-kpis { bottom: 98px !important; }
+  body:has(dialog[open]) .ahb-wrap { display: none; }
+
+  @media (max-width: 900px) {
+    body:has(.ahb-toggle:not(:checked)) { padding-bottom: 132px; }
+    body:has(.ahb-toggle:not(:checked)) .side-panel { padding-bottom: 24px; }
+    body:has(.ahb-toggle:not(:checked)) .shell:not(.sidebar-collapsed) .map-credit { bottom: 10px !important; }
+    body:has(.ahb-toggle:not(:checked)) .shell:not(.sidebar-collapsed) .dashboard-kpis { bottom: 10px !important; }
+    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .map-credit { bottom: 142px !important; }
+    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .dashboard-kpis { bottom: 148px !important; }
+    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .sidebar-rail { bottom: 214px !important; }
+  }
+
+  @media (max-width: 600px) {
+    body:has(.ahb-toggle:not(:checked)) { padding-bottom: 154px; }
+    .ahb-wrap { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
+    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .map-credit { bottom: 162px !important; }
+    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .dashboard-kpis { bottom: 168px !important; }
+    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .sidebar-rail { bottom: 234px !important; }
+  }
+</style>`;
+
+const SUPPORT_BANNER_HTML = `<!-- MULAI BANNER -->
+<div class="ahb-wrap">
+  <style>
+    .ahb-wrap { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9999; padding: 0 12px 12px; pointer-events: none; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
+    .ahb-wrap:has(.ahb-toggle:checked) { display: none; }
+    .ahb { pointer-events: auto; box-sizing: border-box; max-width: 960px; margin: 0 auto; display: flex; align-items: center; gap: 12px 16px; padding: 10px 12px 10px 18px; background: #fffaf3; color: #2b2b2b; border: 1px solid #ead9c6; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.12); font-size: 15px; line-height: 1.45; }
+    .ahb *, .ahb *::before, .ahb *::after { box-sizing: border-box; }
+    .ahb-teks { margin: 0; flex: 1 1 auto; }
+    .ahb-teks strong { color: #1f1f1f; }
+    .ahb-tombol { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; min-height: 40px; background: #be1e2d; color: #fff; font-weight: 600; font-size: 15px; text-decoration: none; border-radius: 999px; white-space: nowrap; transition: background-color .15s; }
+    .ahb-tombol:hover { background: #9e1824; color: #fff; }
+    .ahb-tombol:focus-visible { outline: 3px solid #1f1f1f; outline-offset: 3px; }
+    .ahb-tutup { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; color: #555; font-size: 20px; line-height: 1; cursor: pointer; }
+    .ahb-tutup:hover { background: #f1e6d8; color: #1f1f1f; }
+    .ahb-tutup:has(.ahb-toggle:focus-visible) { outline: 3px solid #1f1f1f; outline-offset: 2px; }
+    .ahb-toggle { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+    @media (max-width: 600px) {
+      .ahb { flex-wrap: wrap; padding: 12px 10px 12px 14px; font-size: 14px; }
+      .ahb-teks { flex: 1 1 calc(100% - 56px); }
+      .ahb-tutup { order: 2; align-self: flex-start; }
+      .ahb-tombol { order: 3; flex: 1 1 100%; justify-content: center; }
+    }
+    @media (prefers-reduced-motion: reduce) { .ahb-tombol { transition: none; } }
+  </style>
+  <aside class="ahb" aria-label="Dukung peta ini">
+    <p class="ahb-teks"><strong>Peta ini gratis dan dijalankan sendiri.</strong> Bantu biaya server dan data lewat Trakteer, kalau berkenan.</p>
+    <a class="ahb-tombol" href="https://trakteer.id/apel.hijau/tip" target="_blank" rel="noopener">Dukung server peta <span aria-hidden="true">&#9829;</span><span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">(membuka tab baru)</span></a>
+    <label class="ahb-tutup" title="Tutup">
+      <input type="checkbox" class="ahb-toggle" aria-label="Tutup banner dukungan">
+      <span aria-hidden="true">&times;</span>
+    </label>
+  </aside>
+</div>
+<!-- AKHIR BANNER -->`;
+
+function supportBannerMarkup() {
+  return SUPPORT_LAYOUT_STYLE + SUPPORT_BANNER_HTML;
+}
+
+function injectSupportBanner(html) {
+  if (!html || html.includes('class="ahb-wrap"') || !/<\/body>/i.test(html)) return html;
+  return html.replace(/<\/body>/i, supportBannerMarkup() + "</body>");
+}
+
+function pageShell({ title, description, canonical, body, jsonLd, showSupportBanner = true }) {
   const schema = jsonLd ? '<script type="application/ld+json">' + JSON.stringify(jsonLd).replace(/</g, "\\u003c") + '</script>' : "";
   return `<!doctype html><html lang="id"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${escapePageHtml(title)}</title><meta name="description" content="${escapePageHtml(description)}"><meta name="robots" content="index,follow">
@@ -289,7 +360,7 @@ function pageShell({ title, description, canonical, body, jsonLd }) {
 <meta property="og:description" content="${escapePageHtml(description)}"><meta property="og:url" content="${escapePageHtml(canonical)}">
 <meta name="twitter:card" content="summary"><link rel="stylesheet" href="/seo.css">${schema}</head><body>
 <header class="seo-header"><a href="/" class="brand">Indonesia Disaster Monitor</a><nav><a href="/gempa-hari-ini">Gempa Hari Ini</a><a href="/data-bencana-indonesia">Data Bencana</a><a href="/panduan-gempa">Panduan</a></nav></header>
-<main class="seo-main">${body}</main><footer class="seo-footer">Sumber resmi: BMKG dan BNPB. Data dapat berubah mengikuti pembaruan sumber.</footer></body></html>`;
+<main class="seo-main">${body}</main><footer class="seo-footer">Sumber resmi: BMKG dan BNPB. Data dapat berubah mengikuti pembaruan sumber.</footer>${showSupportBanner ? supportBannerMarkup() : ""}</body></html>`;
 }
 
 
@@ -394,7 +465,8 @@ ${metricRows ? `<h2>Parameter kejadian</h2><table><tbody>${metricRows}</tbody></
     description: `${incident.title}. ${incident.summary || ""}`.slice(0,155),
     canonical,
     body,
-    jsonLd: { "@context":"https://schema.org", "@type":"Report", headline:incident.title, datePublished:incident.occurredAt || incident.updatedAt, dateModified:incident.updatedAt, about:incident.type, spatialCoverage:incident.region, isBasedOn:incident.sourceUrl }
+    jsonLd: { "@context":"https://schema.org", "@type":"Report", headline:incident.title, datePublished:incident.occurredAt || incident.updatedAt, dateModified:incident.updatedAt, about:incident.type, spatialCoverage:incident.region, isBasedOn:incident.sourceUrl },
+    showSupportBanner: false
   });
 }
 
@@ -437,8 +509,14 @@ async function serveStatic(req,res){
     return res.end("Forbidden");
   }
   try{
+    const ext=path.extname(filePath);
+    if(ext===".html"){
+      const html=await fs.readFile(filePath,"utf8");
+      res.writeHead(200,{"content-type":contentTypes[ext]||"text/html; charset=utf-8","cache-control":"public, max-age=60"});
+      return res.end(injectSupportBanner(html));
+    }
     const body=await fs.readFile(filePath);
-    res.writeHead(200,{"content-type":contentTypes[path.extname(filePath)]||"application/octet-stream","cache-control":"public, max-age=60"});
+    res.writeHead(200,{"content-type":contentTypes[ext]||"application/octet-stream","cache-control":"public, max-age=60"});
     res.end(body);
   }catch{
     res.writeHead(404,{"content-type":"text/plain; charset=utf-8"});
