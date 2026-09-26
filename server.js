@@ -282,73 +282,16 @@ function escapePageHtml(value) {
 }
 
 
-const SUPPORT_LAYOUT_STYLE = `<style>
-  /* Reserve room for the fixed support banner without changing its visual design. */
-  body:has(.ahb-toggle:not(:checked)) .side-panel { padding-bottom: 96px; }
-  body:has(.ahb-toggle:not(:checked)) .map-credit { bottom: 92px !important; }
-  body:has(.ahb-toggle:not(:checked)) .dashboard-kpis { bottom: 98px !important; }
-  body:has(dialog[open]) .ahb-wrap { display: none; }
+const SUPPORT_LAYOUT_STYLE = "<style>\n  .ahp-backdrop {\n    position: fixed;\n    inset: 0;\n    z-index: 9999;\n    display: none;\n    align-items: center;\n    justify-content: center;\n    padding: 20px;\n    background: rgba(15, 23, 42, .34);\n    backdrop-filter: blur(2px);\n    font-family: system-ui, -apple-system, \"Segoe UI\", Roboto, \"Helvetica Neue\", Arial, sans-serif;\n  }\n  .ahp-backdrop.is-visible { display: flex; }\n  .ahp-card {\n    position: relative;\n    box-sizing: border-box;\n    width: min(430px, 100%);\n    padding: 22px 22px 20px;\n    background: #fffaf3;\n    color: #2b2b2b;\n    border: 1px solid #ead9c6;\n    border-radius: 18px;\n    box-shadow: 0 20px 60px rgba(15, 23, 42, .24);\n    text-align: left;\n  }\n  .ahp-card *, .ahp-card *::before, .ahp-card *::after { box-sizing: border-box; }\n  .ahp-icon {\n    display: grid;\n    place-items: center;\n    width: 42px;\n    height: 42px;\n    margin-bottom: 13px;\n    border-radius: 12px;\n    background: #f6e8d8;\n    font-size: 22px;\n  }\n  .ahp-card strong { display: block; color: #1f1f1f; font-size: 18px; line-height: 1.3; }\n  .ahp-card p { margin: 8px 0 18px; font-size: 14px; line-height: 1.55; color: #4b4b4b; }\n  .ahp-actions { display: flex; gap: 9px; align-items: center; }\n  .ahp-button {\n    display: inline-flex;\n    flex: 1 1 auto;\n    align-items: center;\n    justify-content: center;\n    min-height: 42px;\n    padding: 10px 16px;\n    background: #be1e2d;\n    color: #fff;\n    font-weight: 650;\n    font-size: 14px;\n    text-decoration: none;\n    border-radius: 999px;\n    transition: background-color .15s;\n  }\n  .ahp-button:hover { background: #9e1824; color: #fff; }\n  .ahp-button:focus-visible, .ahp-close:focus-visible { outline: 3px solid #1f1f1f; outline-offset: 3px; }\n  .ahp-close {\n    position: absolute;\n    top: 11px;\n    right: 11px;\n    width: 34px;\n    height: 34px;\n    border: 0;\n    border-radius: 50%;\n    background: transparent;\n    color: #555;\n    font-size: 22px;\n    line-height: 1;\n    cursor: pointer;\n  }\n  .ahp-close:hover { background: #f1e6d8; color: #1f1f1f; }\n  body:has(dialog[open]) .ahp-backdrop { display: none !important; }\n  @media (max-width: 600px) {\n    .ahp-backdrop { align-items: flex-end; padding: 12px 12px calc(12px + env(safe-area-inset-bottom)); }\n    .ahp-card { width: 100%; padding: 20px 18px 18px; border-radius: 18px; }\n    .ahp-card strong { font-size: 17px; padding-right: 24px; }\n    .ahp-actions { display: block; }\n    .ahp-button { width: 100%; }\n  }\n  @media (prefers-reduced-motion: reduce) { .ahp-button { transition: none; } }\n</style>";
 
-  @media (max-width: 900px) {
-    body:has(.ahb-toggle:not(:checked)) { padding-bottom: 132px; }
-    body:has(.ahb-toggle:not(:checked)) .side-panel { padding-bottom: 24px; }
-    body:has(.ahb-toggle:not(:checked)) .shell:not(.sidebar-collapsed) .map-credit { bottom: 10px !important; }
-    body:has(.ahb-toggle:not(:checked)) .shell:not(.sidebar-collapsed) .dashboard-kpis { bottom: 10px !important; }
-    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .map-credit { bottom: 142px !important; }
-    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .dashboard-kpis { bottom: 148px !important; }
-    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .sidebar-rail { bottom: 214px !important; }
-  }
-
-  @media (max-width: 600px) {
-    body:has(.ahb-toggle:not(:checked)) { padding-bottom: 154px; }
-    .ahb-wrap { padding-bottom: calc(12px + env(safe-area-inset-bottom)); }
-    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .map-credit { bottom: 162px !important; }
-    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .dashboard-kpis { bottom: 168px !important; }
-    body:has(.ahb-toggle:not(:checked)) .shell.sidebar-collapsed .sidebar-rail { bottom: 234px !important; }
-  }
-</style>`;
-
-const SUPPORT_BANNER_HTML = `<!-- MULAI BANNER -->
-<div class="ahb-wrap">
-  <style>
-    .ahb-wrap { position: fixed; left: 0; right: 0; bottom: 0; z-index: 9999; padding: 0 12px 12px; pointer-events: none; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif; }
-    .ahb-wrap:has(.ahb-toggle:checked) { display: none; }
-    .ahb { pointer-events: auto; box-sizing: border-box; max-width: 960px; margin: 0 auto; display: flex; align-items: center; gap: 12px 16px; padding: 10px 12px 10px 18px; background: #fffaf3; color: #2b2b2b; border: 1px solid #ead9c6; border-radius: 12px; box-shadow: 0 4px 18px rgba(0,0,0,.12); font-size: 15px; line-height: 1.45; }
-    .ahb *, .ahb *::before, .ahb *::after { box-sizing: border-box; }
-    .ahb-teks { margin: 0; flex: 1 1 auto; }
-    .ahb-teks strong { color: #1f1f1f; }
-    .ahb-tombol { flex: 0 0 auto; display: inline-flex; align-items: center; gap: 6px; padding: 9px 16px; min-height: 40px; background: #be1e2d; color: #fff; font-weight: 600; font-size: 15px; text-decoration: none; border-radius: 999px; white-space: nowrap; transition: background-color .15s; }
-    .ahb-tombol:hover { background: #9e1824; color: #fff; }
-    .ahb-tombol:focus-visible { outline: 3px solid #1f1f1f; outline-offset: 3px; }
-    .ahb-tutup { position: relative; flex: 0 0 auto; display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; border-radius: 50%; color: #555; font-size: 20px; line-height: 1; cursor: pointer; }
-    .ahb-tutup:hover { background: #f1e6d8; color: #1f1f1f; }
-    .ahb-tutup:has(.ahb-toggle:focus-visible) { outline: 3px solid #1f1f1f; outline-offset: 2px; }
-    .ahb-toggle { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
-    @media (max-width: 600px) {
-      .ahb { flex-wrap: wrap; padding: 12px 10px 12px 14px; font-size: 14px; }
-      .ahb-teks { flex: 1 1 calc(100% - 56px); }
-      .ahb-tutup { order: 2; align-self: flex-start; }
-      .ahb-tombol { order: 3; flex: 1 1 100%; justify-content: center; }
-    }
-    @media (prefers-reduced-motion: reduce) { .ahb-tombol { transition: none; } }
-  </style>
-  <aside class="ahb" aria-label="Dukung peta ini">
-    <p class="ahb-teks"><strong>Peta ini gratis dan dijalankan sendiri.</strong> Bantu biaya server dan data lewat Trakteer, kalau berkenan.</p>
-    <a class="ahb-tombol" href="https://trakteer.id/apel.hijau/tip" target="_blank" rel="noopener">Dukung server peta <span aria-hidden="true">&#9829;</span><span style="position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap">(membuka tab baru)</span></a>
-    <label class="ahb-tutup" title="Tutup">
-      <input type="checkbox" class="ahb-toggle" aria-label="Tutup banner dukungan">
-      <span aria-hidden="true">&times;</span>
-    </label>
-  </aside>
-</div>
-<!-- AKHIR BANNER -->`;
+const SUPPORT_BANNER_HTML = "<!-- MULAI POPUP DUKUNGAN -->\n<div class=\"ahp-backdrop\" id=\"ahpSupport\" role=\"presentation\" aria-hidden=\"true\">\n  <aside class=\"ahp-card\" role=\"dialog\" aria-modal=\"true\" aria-labelledby=\"ahpTitle\" aria-describedby=\"ahpText\">\n    <button class=\"ahp-close\" type=\"button\" aria-label=\"Tutup popup dukungan\">&times;</button>\n    <div class=\"ahp-icon\" aria-hidden=\"true\">&#9829;</div>\n    <strong id=\"ahpTitle\">Peta ini gratis dan dijalankan sendiri.</strong>\n    <p id=\"ahpText\">Bantu biaya server dan data lewat Trakteer, kalau berkenan.</p>\n    <div class=\"ahp-actions\">\n      <a class=\"ahp-button\" href=\"https://trakteer.id/apel.hijau/tip\" target=\"_blank\" rel=\"noopener\">Dukung server peta <span aria-hidden=\"true\">&nbsp;&#9829;</span><span style=\"position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap\">(membuka tab baru)</span></a>\n    </div>\n  </aside>\n</div>\n<script>\n(() => {\n  const popup = document.getElementById(\"ahpSupport\");\n  if (!popup) return;\n\n  const closeButton = popup.querySelector(\".ahp-close\");\n  const supportButton = popup.querySelector(\".ahp-button\");\n  const storageKey = \"idm-support-popup-seen\";\n  const today = new Date().toISOString().slice(0, 10);\n  let lastFocused = null;\n  let shown = false;\n\n  try {\n    if (localStorage.getItem(storageKey) === today) return;\n  } catch (_) {}\n\n  const closePopup = () => {\n    popup.classList.remove(\"is-visible\");\n    popup.setAttribute(\"aria-hidden\", \"true\");\n    if (lastFocused && typeof lastFocused.focus === \"function\") lastFocused.focus();\n  };\n\n  const rememberToday = () => {\n    try { localStorage.setItem(storageKey, today); } catch (_) {}\n  };\n\n  const showWhenSafe = () => {\n    if (shown) return;\n    if (document.querySelector(\"dialog[open]\")) {\n      window.setTimeout(showWhenSafe, 3000);\n      return;\n    }\n    shown = true;\n    rememberToday();\n    lastFocused = document.activeElement;\n    popup.classList.add(\"is-visible\");\n    popup.setAttribute(\"aria-hidden\", \"false\");\n    if (closeButton) closeButton.focus();\n  };\n\n  if (closeButton) closeButton.addEventListener(\"click\", closePopup);\n  if (supportButton) supportButton.addEventListener(\"click\", closePopup);\n  popup.addEventListener(\"click\", event => {\n    if (event.target === popup) closePopup();\n  });\n  document.addEventListener(\"keydown\", event => {\n    if (event.key === \"Escape\" && popup.classList.contains(\"is-visible\")) closePopup();\n  });\n\n  window.setTimeout(showWhenSafe, 20000);\n})();\n</script>\n<!-- AKHIR POPUP DUKUNGAN -->";
 
 function supportBannerMarkup() {
   return SUPPORT_LAYOUT_STYLE + SUPPORT_BANNER_HTML;
 }
 
 function injectSupportBanner(html) {
-  if (!html || html.includes('class="ahb-wrap"') || !/<\/body>/i.test(html)) return html;
+  if (!html || html.includes('id="ahpSupport"') || !/<\/body>/i.test(html)) return html;
   return html.replace(/<\/body>/i, supportBannerMarkup() + "</body>");
 }
 
