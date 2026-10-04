@@ -6,6 +6,7 @@ const { URL } = require("url");
 const PORT = Number(process.env.PORT || 5173);
 const PUBLIC_DIR = path.join(__dirname, "public");
 const CACHE_TTL_MS = 5 * 60 * 1000;
+const STALE_CACHE_MAX_MS = 6 * 60 * 60 * 1000;
 const ADMIN_TTL_MS = 60 * 60 * 1000;
 const RATE_LIMIT_WINDOW_MS = 60 * 1000;
 const RATE_LIMIT_MAX = 30;
@@ -258,13 +259,24 @@ async function loadIncidents() {
       ...(data.bmkgFelt?.Infogempa?.gempa||[]).map(x=>normalizeBmkg(x,"felt")),
       ...(data.bnpbDashboard?.features||[]).map(normalizeBnpb), ...tableIncidents,
     ]);
-    const payload={cachedAt:Date.now(),generatedAt:new Date().toISOString(),cacheTtlSeconds:CACHE_TTL_MS/1000,incidents,errors,sources:[
+    if (!incidents.length && incidentCache && Date.now() - incidentCacheAt < STALE_CACHE_MAX_MS) {
+      return {
+        ...incidentCache,
+        generatedAt: new Date().toISOString(),
+        stale: true,
+        staleAgeSeconds: Math.round((Date.now() - incidentCacheAt) / 1000),
+        errors: [...(incidentCache.errors || []), ...errors, { source: "aggregator", message: "Semua sumber gagal diperbarui; menampilkan cache terakhir." }],
+      };
+    }
+    const payload={cachedAt:Date.now(),generatedAt:new Date().toISOString(),cacheTtlSeconds:CACHE_TTL_MS/1000,stale:false,incidents,errors,sources:[
       {name:"BMKG Data Gempabumi Terbuka",url:"https://data.bmkg.go.id/gempabumi/",updateMode:"Diperbarui setiap ada peristiwa gempa; batas akses 60 permintaan/menit/IP.",realtimeClaim:"event-driven, bukan jaminan detik-per-detik"},
       {name:"BNPB Data Bencana / GIS",url:"https://gis.bnpb.go.id/databencana/",updateMode:"Data kejadian terlapor dari layanan GIS BNPB.",realtimeClaim:"near real-time/terlapor sesuai pembaruan sumber"},
       {name:"PVMBG MAGMA Indonesia",url:"https://magma.esdm.go.id/",updateMode:"Quasi real-time untuk kebencanaan geologi; API publik resmi belum terdokumentasi stabil.",realtimeClaim:"fase berikutnya"},
     ]};
-    incidentCache = payload;
-    incidentCacheAt = Date.now();
+    if (incidents.length) {
+      incidentCache = payload;
+      incidentCacheAt = Date.now();
+    }
     return payload;
   })();
 
