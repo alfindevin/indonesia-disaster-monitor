@@ -1,5 +1,7 @@
 # Pemantauan Bencana Indonesia MVP
 
+**Status:** Active MVP
+
 MVP ini memantau kejadian bencana Indonesia dengan prinsip utama: sumber resmi, atribusi jelas, cache, dan tidak mengklaim real-time bila sumber tidak menjaminnya.
 
 ## Sumber Data Yang Dipilih
