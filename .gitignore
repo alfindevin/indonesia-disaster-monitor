@@ -1,3 +1,7 @@
 node_modules/
-work/cache.json
+.env
+.env.*
+!.env.example
 .DS_Store
+*.log
+npm-debug.log*
