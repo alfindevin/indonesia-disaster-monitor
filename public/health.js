@@ -25,7 +25,7 @@
       const s = statusFor(name, payload);
       return `<article class="health-card"><div class="health-card-head"><strong>${esc(title)}</strong><span class="health-status ${s.cls}">${s.label}</span></div><small>${esc(provider)} · respons API ${elapsed} ms</small><p>${esc(s.detail)}</p></article>`;
     }).join('');
-    updated.textContent = `Pemeriksaan ${new Date().toLocaleTimeString('id-ID')}`;
+    updated.textContent = payload.stale ? `Cache lama · ${Math.max(1, Math.round((payload.staleAgeSeconds || 0) / 60))} menit` : `Pemeriksaan ${new Date().toLocaleTimeString('id-ID')}`;
   }
   async function check() {
     refresh.disabled = true;
