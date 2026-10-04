@@ -86,25 +86,34 @@ function checkApiRateLimit(req) {
   };
 }
 
-async function fetchJson(url) {
+function wait(ms) { return new Promise(resolve => setTimeout(resolve, ms)); }
+
+async function fetchUpstream(url, parse, attempt = 0) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
+  const timeout = setTimeout(() => controller.abort(), 8000);
   try {
     const response = await fetch(url, { signal: controller.signal, headers: { "user-agent": "IndonesiaDisasterMonitor/1.0" } });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    return await response.json();
-  } finally { clearTimeout(timeout); }
+    if (!response.ok) {
+      const error = new Error(`${response.status} ${response.statusText}`);
+      error.status = response.status;
+      throw error;
+    }
+    return await parse(response);
+  } catch (error) {
+    const status = Number(error?.status || 0);
+    const retryable = error?.name === "AbortError" || status === 429 || status >= 500;
+    if (attempt < 1 && retryable) {
+      await wait(350);
+      return fetchUpstream(url, parse, attempt + 1);
+    }
+    throw error;
+  } finally {
+    clearTimeout(timeout);
+  }
 }
 
-async function fetchText(url) {
-  const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), 10000);
-  try {
-    const response = await fetch(url, { signal: controller.signal, headers: { "user-agent": "IndonesiaDisasterMonitor/1.0" } });
-    if (!response.ok) throw new Error(`${response.status} ${response.statusText}`);
-    return await response.text();
-  } finally { clearTimeout(timeout); }
-}
+function fetchJson(url) { return fetchUpstream(url, response => response.json()); }
+function fetchText(url) { return fetchUpstream(url, response => response.text()); }
 
 function parseCoordinates(value) {
   if (!value || typeof value !== "string") return null;
